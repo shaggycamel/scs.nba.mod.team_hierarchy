@@ -260,8 +260,11 @@ def daily_hierarchy(
     fixtures = load_fixtures(data_dir, season_types).filter(
         pl.col("game_date") == as_of_date
     )
-    served = served.drop("game_id").join(
-        fixtures.select("team_id", "game_id", "opponent", "home", "matchup"),
+    # The virtual serving rows carry the season of the player's last panel row,
+    # which on opening night is the previous season. The fixture season is the
+    # only correct label for the output.
+    served = served.drop("game_id", "season").join(
+        fixtures.select("team_id", "game_id", "season", "opponent", "home", "matchup"),
         on="team_id",
         how="inner" if require_fixture else "left",
     )
