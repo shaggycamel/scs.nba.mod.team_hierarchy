@@ -144,9 +144,12 @@ nba/injuries.parquet
 nba/league_game_schedule.parquet
 nba/player_box_score.parquet
 nba/player_info.parquet
+nba/team_roster.parquet
 nba/teams.parquet
 util/player_id_map_vw.parquet
 ```
+
+The daily run uses the dated `team_roster` table to correct offseason membership: a player traded in July has no game for his new team yet, so the panel alone would still put him on last season's team.
 
 ## Reproduce
 

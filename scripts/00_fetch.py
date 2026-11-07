@@ -51,6 +51,9 @@ def main() -> None:
         "nba/player_info": f"""
             SELECT * FROM nba.player_info WHERE season <= '{through}'
         """,
+        "nba/team_roster": f"""
+            SELECT * FROM nba.team_roster WHERE season <= '{through}'
+        """,
         "nba/teams": "SELECT * FROM nba.teams",
         "util/player_id_map_vw": "SELECT * FROM util.player_id_map_vw",
     }

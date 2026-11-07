@@ -35,7 +35,7 @@ from .availability import (
     injury_era,
 )
 from .config import DATA_DIR, SEASON_TYPES
-from .data import load_fixtures
+from .data import load_fixtures, load_team_roster
 from .persist import HierarchyBundle, build_metadata
 from .position import (
     HISTORY_FEATURES,
@@ -217,8 +217,15 @@ def daily_hierarchy(
     result as hypothetical.
     """
     panel = build_panel(data_dir, season_types)
+    fixtures = load_fixtures(data_dir, season_types).filter(
+        pl.col("game_date") == as_of_date
+    )
+    season = fixtures["season"].max() if not fixtures.is_empty() else None
+    roster = load_team_roster(data_dir, season) if season is not None else None
     combined = _attach_report_for_date(
-        append_serving_rows(panel, as_of_date, lookback_games), as_of_date, data_dir
+        append_serving_rows(panel, as_of_date, lookback_games, roster),
+        as_of_date,
+        data_dir,
     )
     data = add_report_features(prepare(add_pre_game_state(combined), data_dir))
 
@@ -257,9 +264,6 @@ def daily_hierarchy(
         usage_model = bundle.usage_model
 
     served = serving_rows(data)
-    fixtures = load_fixtures(data_dir, season_types).filter(
-        pl.col("game_date") == as_of_date
-    )
     # The virtual serving rows carry the season of the player's last panel row,
     # which on opening night is the previous season. The fixture season is the
     # only correct label for the output.

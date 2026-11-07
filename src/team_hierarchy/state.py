@@ -174,19 +174,27 @@ def add_pre_game_state(
 
 
 def candidate_roster(
-    panel: pl.DataFrame, as_of_date: date, lookback_games: int = 10
+    panel: pl.DataFrame,
+    as_of_date: date,
+    lookback_games: int = 10,
+    roster: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """Players to predict for: anyone on a team's roster in its recent games.
+    """Players to predict for: the current roster when one is available.
 
-    Membership is read from the panel rather than the season roster table, which
-    is both incomplete and undated.
-
-    Exactly one row per player. A player traded inside the lookback window is on
-    both teams' recent rosters, and emitting a virtual row for each would give
-    him two rows on the same date -- which then corrupt each other, since the
-    second sees the first as a prior game. His current team is the one he last
-    appeared for.
+    Membership is read from the panel by default, because it is the only
+    source for historical seasons. The dated season roster, when supplied,
+    corrects the offseason case: a player traded in July has no game for his
+    new team yet, so the panel would still put him on last season's team.
     """
+    if roster is not None and not roster.is_empty():
+        active = roster.filter(
+            (pl.col("entry_date").is_null() | (pl.col("entry_date") <= as_of_date))
+            & (pl.col("exit_date").is_null() | (pl.col("exit_date") > as_of_date))
+        ).sort("entry_date", nulls_last=True).group_by("player_id").tail(1)
+        return active.select(
+            "season", "team_id", "team_abbreviation", "player_id", "player_name"
+        )
+
     prior = panel.filter(pl.col("game_date") < as_of_date)
     recent_games = (
         prior.select("team_id", "game_id", "game_date")
@@ -214,6 +222,7 @@ def append_serving_rows(
     panel: pl.DataFrame,
     as_of_date: date,
     lookback_games: int = 10,
+    roster: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Panel history before `as_of_date`, plus a virtual row per rostered player.
 
@@ -223,7 +232,7 @@ def append_serving_rows(
     strip each player's history and silently null every trailing feature.
     """
     prior = panel.filter(pl.col("game_date") < as_of_date)
-    candidates = candidate_roster(panel, as_of_date, lookback_games)
+    candidates = candidate_roster(panel, as_of_date, lookback_games, roster)
 
     virtual = candidates.with_columns(
         game_id=pl.lit(SERVING_GAME_ID, dtype=pl.Int64),

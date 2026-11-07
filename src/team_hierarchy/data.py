@@ -116,6 +116,27 @@ def load_schedule(data_dir: Path = DATA_DIR) -> pl.DataFrame:
     return sched.unique(subset=["game_id"], keep="first")
 
 
+def load_team_roster(
+    data_dir: Path = DATA_DIR,
+    season: str | None = None,
+) -> pl.DataFrame:
+    """The dated season roster, used to correct serving membership.
+
+    The panel only knows who played; a player traded in the offseason has not
+    appeared for his new team yet. The roster table carries the current team and
+    entry/exit dates, so the daily run does not put him on last season's team.
+    """
+    roster = pl.read_parquet(data_dir / "nba" / "team_roster.parquet")
+    if season is not None:
+        roster = roster.filter(pl.col("season") == season)
+    return roster.select(
+        "season", "team_id", "team_slug",
+        pl.col("player_id").cast(pl.Int64),
+        pl.col("player").alias("player_name"),
+        "entry_date", "exit_date",
+    ).with_columns(pl.col("team_slug").alias("team_abbreviation"))
+
+
 def load_fixtures(
     data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
