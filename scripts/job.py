@@ -44,6 +44,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--db-con", default="cockroach-write")
     parser.add_argument("--source", default=os.environ.get("UPDATE_LOG_SOURCE", SOURCE))
     parser.add_argument("--skip-fetch", action="store_true")
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=Path("artifacts/team_hierarchy/model.pkl"),
+    )
     return parser.parse_args(argv)
 
 
@@ -106,9 +111,14 @@ def main(argv: list[str] | None = None) -> int:
             ])
 
         os.environ["TEAM_HIERARCHY_DATA"] = str(data_dir)
+        from team_hierarchy.persist import load
         from team_hierarchy.pipeline import daily_hierarchy
 
-        served = daily_hierarchy(args.date)
+        model_path = args.model if args.model.is_absolute() else ROOT / args.model
+        if not model_path.exists():
+            raise FileNotFoundError(f"missing model bundle: {model_path}")
+        bundle = load(model_path)
+        served = daily_hierarchy(args.date, bundle=bundle)
         rows = served.height
         if served.is_empty():
             print(f"{args.date}: no fixtures; nothing to publish")
@@ -128,7 +138,11 @@ def main(argv: list[str] | None = None) -> int:
                 pl.col("rank_improvement").cast(pl.Int64),
                 pl.col("expected_vacated_minutes").cast(pl.Float64),
                 pl.col("expected_vacated_minutes_same_position").cast(pl.Float64),
-            ).with_columns(pl.lit(datetime.now(UTC)).alias("generated_at"))
+            ).with_columns(
+                pl.lit(bundle.metadata["trained_through"]).alias("model_cutoff"),
+                pl.lit(bundle.metadata["created_at"]).alias("model_version"),
+                pl.lit(datetime.now(UTC)).alias("generated_at"),
+            )
             output.parent.mkdir(parents=True, exist_ok=True)
             out.write_parquet(output)
             run("publish", [

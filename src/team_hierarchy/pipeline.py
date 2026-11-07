@@ -36,6 +36,7 @@ from .availability import (
 )
 from .config import DATA_DIR, SEASON_TYPES
 from .data import load_fixtures
+from .persist import HierarchyBundle, build_metadata
 from .position import (
     HISTORY_FEATURES,
     PROFILE_FEATURES,
@@ -106,6 +107,61 @@ def layer4_frame(
     return add_absorption_features(add_out_of_fold_play_probability(injury_era(data)))
 
 
+def fit_bundle(
+    through_season: str,
+    data_dir: Path = DATA_DIR,
+    season_types: tuple[str, ...] = SEASON_TYPES,
+    git_commit: str | None = None,
+) -> HierarchyBundle:
+    """Fit the production bundle on seasons up to and including `through_season`.
+
+    The current season is deliberately excluded when this is called with the
+    previous season; the daily job loads the frozen models and never refits.
+    """
+    panel = build_panel(data_dir, season_types)
+    data = add_report_features(prepare(add_pre_game_state(panel), data_dir))
+    data = data.filter(pl.col("season") <= through_season)
+
+    position_features = list(PROFILE_FEATURES + HISTORY_FEATURES)
+    slot_model = fit_slot_model(
+        data.filter(pl.col("start_position").is_in(SLOTS)), position_features
+    )
+    data = assign_positions(predict_slots(slot_model, data, position_features))
+
+    play_model = fit_calibrated_play_model(injury_era(data), PLAY_FEATURES)
+    train = add_absorption_features(
+        add_out_of_fold_play_probability(injury_era(data))
+    ).filter(pl.col("played"))
+    features = list(OWN_FEATURES + ABSORPTION_FEATURES)
+    minutes_model = fit_regressor(train, features, MINUTES_TARGET)
+    usage_model = fit_regressor(train, features, USAGE_TARGET)
+
+    metadata = build_metadata(
+        trained_through=through_season,
+        cutoff=str(data["game_date"].max()),
+        seasons=sorted(data["season"].unique().to_list()),
+        rows=train.height,
+        features={
+            "position": position_features,
+            "play": list(PLAY_FEATURES),
+            "absorption": features,
+        },
+        git_commit=git_commit,
+    )
+    return HierarchyBundle(
+        position_model=slot_model,
+        play_model=play_model,
+        minutes_model=minutes_model,
+        usage_model=usage_model,
+        features={
+            "position": position_features,
+            "play": list(PLAY_FEATURES),
+            "absorption": features,
+        },
+        metadata=metadata,
+    )
+
+
 def _attach_report_for_date(
     combined: pl.DataFrame, as_of_date: date, data_dir: Path
 ) -> pl.DataFrame:
@@ -140,6 +196,7 @@ def daily_hierarchy(
     season_types: tuple[str, ...] = SEASON_TYPES,
     lookback_games: int = 10,
     require_fixture: bool = True,
+    bundle: HierarchyBundle | None = None,
 ) -> pl.DataFrame:
     """The daily run: a ranked, position-assigned depth chart for every team.
 
@@ -165,28 +222,39 @@ def daily_hierarchy(
     )
     data = add_report_features(prepare(add_pre_game_state(combined), data_dir))
 
-    before = pl.col("game_date") < as_of_date
-    position_features = PROFILE_FEATURES + HISTORY_FEATURES
-    slot_model = fit_slot_model(
-        data.filter(before & pl.col("start_position").is_in(SLOTS)), position_features
-    )
-    data = assign_positions(predict_slots(slot_model, data, position_features))
+    if bundle is None:
+        before = pl.col("game_date") < as_of_date
+        position_features = list(PROFILE_FEATURES + HISTORY_FEATURES)
+        slot_model = fit_slot_model(
+            data.filter(before & pl.col("start_position").is_in(SLOTS)), position_features
+        )
+        data = assign_positions(predict_slots(slot_model, data, position_features))
 
-    # Re-cut the history only once positions exist, since layer 4's features are
-    # position-aware and the absorption frame is built from this slice.
-    history = data.filter(before)
-    play_model = fit_calibrated_play_model(injury_era(history), PLAY_FEATURES)
-    data = add_absorption_features(
-        data.with_columns(p_play=pl.Series(play_model.predict(data)))
-    )
+        # Re-cut the history only once positions exist, since layer 4's features
+        # are position-aware and the absorption frame is built from this slice.
+        history = data.filter(before)
+        play_model = fit_calibrated_play_model(injury_era(history), PLAY_FEATURES)
+        data = add_absorption_features(
+            data.with_columns(p_play=pl.Series(play_model.predict(data)))
+        )
 
-    # Layer 4 trains on the same out-of-fold frame the evaluation validated.
-    train = add_absorption_features(
-        add_out_of_fold_play_probability(injury_era(history))
-    ).filter(pl.col("played"))
-    features = OWN_FEATURES + ABSORPTION_FEATURES
-    minutes_model = fit_regressor(train, features, MINUTES_TARGET)
-    usage_model = fit_regressor(train, features, USAGE_TARGET)
+        # Layer 4 trains on the same out-of-fold frame the evaluation validated.
+        train = add_absorption_features(
+            add_out_of_fold_play_probability(injury_era(history))
+        ).filter(pl.col("played"))
+        features = list(OWN_FEATURES + ABSORPTION_FEATURES)
+        minutes_model = fit_regressor(train, features, MINUTES_TARGET)
+        usage_model = fit_regressor(train, features, USAGE_TARGET)
+    else:
+        data = assign_positions(
+            predict_slots(bundle.position_model, data, bundle.features["position"])
+        )
+        data = add_absorption_features(
+            data.with_columns(p_play=pl.Series(bundle.play_model.predict(data)))
+        )
+        features = bundle.features["absorption"]
+        minutes_model = bundle.minutes_model
+        usage_model = bundle.usage_model
 
     served = serving_rows(data)
     fixtures = load_fixtures(data_dir, season_types).filter(

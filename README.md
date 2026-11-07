@@ -156,8 +156,46 @@ uv run python scripts/eval_position.py                # position tables
 uv run python scripts/eval_availability.py            # availability tables
 uv run python scripts/eval_absorption.py              # minutes/usage tables
 uv run python scripts/export_charts.py 2026-04-12     # reports/ CSV, TXT, HTML
-uv run pytest                                          # 58 tests
+uv run pytest                                          # 60 tests
 ```
+
+## Persisted model
+
+The production bundle is frozen through 2025-26, so the whole 2026-27 season is
+out-of-sample:
+
+```bash
+TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py \
+  --through-season 2025-26
+```
+
+This writes `artifacts/team_hierarchy/model.pkl` and `model.json`. The daily
+job loads it and never refits:
+
+```bash
+uv run python __main__.py --date 2026-11-07
+```
+
+The four fitted models (position, availability + isotonic, minutes, usage) and
+their feature lists live in the bundle. `persist.load()` refuses a package
+version mismatch.
+
+## Scheduled pipeline and backfill
+
+`__main__.py` refreshes the snapshot, loads the 2025-26 bundle, builds the
+target date's depth chart and replaces that `game_date` in
+`mod.team_hierarchy`. It is scheduled through `nba/mod/_runner` on the NUC; see
+[`SCHEDULING.md`](SCHEDULING.md).
+
+Completed 2026-27 slates plus today:
+
+```bash
+TEAM_HIERARCHY_DATA=data/daily uv run python scripts/backfill.py \
+  --season 2026-27 --end 2026-11-07
+```
+
+The same frozen bundle is used for every date, and every row records
+`model_cutoff` and `model_version`.
 
 ## Layout
 
