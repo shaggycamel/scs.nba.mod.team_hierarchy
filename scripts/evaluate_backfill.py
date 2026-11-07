@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +36,7 @@ def ece(p: np.ndarray, y: np.ndarray, bins: int = 10) -> float:
     edges = np.linspace(0, 1, bins + 1)
     total = len(p)
     out = 0.0
-    for lo, hi in zip(edges[:-1], edges[1:]):
+    for lo, hi in pairwise(edges):
         m = (p >= lo) & (p < hi if hi < 1 else p <= hi)
         if m.any():
             out += abs(p[m].mean() - y[m].mean()) * m.sum() / total
