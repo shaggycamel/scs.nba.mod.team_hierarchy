@@ -89,10 +89,7 @@ def main() -> None:
     y = joined["played"].to_numpy().astype(int)
     brier = float(np.mean((p - y) ** 2))
     logloss = float(
-        -np.mean(
-            y * np.log(np.clip(p, 1e-12, 1))
-            + (1 - y) * np.log(np.clip(1 - p, 1e-12, 1))
-        )
+        -np.mean(y * np.log(np.clip(p, 1e-12, 1)) + (1 - y) * np.log(np.clip(1 - p, 1e-12, 1)))
     )
     from sklearn.metrics import roc_auc_score
 
@@ -115,34 +112,44 @@ def main() -> None:
     def r2(a, b):
         return float(1 - np.sum((a - b) ** 2) / np.sum((b - b.mean()) ** 2))
 
-    print(f"season {args.season}: {joined.height:,} predictions, "
-          f"{joined['game_id'].n_unique()} completed games, "
-          f"{joined['game_date'].n_unique()} dates")
+    print(
+        f"season {args.season}: {joined.height:,} predictions, "
+        f"{joined['game_id'].n_unique()} completed games, "
+        f"{joined['game_date'].n_unique()} dates"
+    )
     print(f"availability base rate {y.mean():.3f}")
     print()
     print(f"{'availability':<22} {'Brier':>8} {'log loss':>9} {'AUC':>7} {'ECE':>7}")
     print(f"{'p_play':<22} {brier:8.4f} {logloss:9.4f} {auc:7.4f} {ece(p, y):7.4f}")
     print()
     print(f"{'minutes':<22} {'MAE':>8} {'RMSE':>8} {'R2':>8}")
-    print(f"{'minutes_if_plays':<22} {mae(min_pred, min_played):8.3f} "
-          f"{rmse(min_pred, min_played):8.3f} {r2(min_pred, min_played):8.3f}")
-    print(f"{'expected_minutes':<22} {mae(exp_all, act_all):8.3f} "
-          f"{rmse(exp_all, act_all):8.3f} {r2(exp_all, act_all):8.3f}")
+    print(
+        f"{'minutes_if_plays':<22} {mae(min_pred, min_played):8.3f} "
+        f"{rmse(min_pred, min_played):8.3f} {r2(min_pred, min_played):8.3f}"
+    )
+    print(
+        f"{'expected_minutes':<22} {mae(exp_all, act_all):8.3f} "
+        f"{rmse(exp_all, act_all):8.3f} {r2(exp_all, act_all):8.3f}"
+    )
     print(f"  (n={played.height:,} played rows for the conditional minutes)")
     print()
     print(f"{'usage, played rows':<22} {'MAE':>8} {'RMSE':>8} {'R2':>8}")
-    print(f"{'expected_usage':<22} {mae(usg_pred, usg_act):8.4f} "
-          f"{rmse(usg_pred, usg_act):8.4f} {r2(usg_pred, usg_act):8.4f}")
+    print(
+        f"{'expected_usage':<22} {mae(usg_pred, usg_act):8.4f} "
+        f"{rmse(usg_pred, usg_act):8.4f} {r2(usg_pred, usg_act):8.4f}"
+    )
     print()
 
     per_date = (
-        joined.group_by("game_date").agg(
+        joined.group_by("game_date")
+        .agg(
             pl.len().alias("rows"),
             pl.col("played").sum().alias("played"),
             (pl.col("p_play").mean()).alias("mean_p"),
             ((pl.col("p_play") - pl.col("played")) ** 2).mean().alias("brier"),
             (pl.col("minutes_if_plays") - pl.col("actual_min")).abs().mean().alias("min_mae"),
-        ).sort("game_date")
+        )
+        .sort("game_date")
     )
     print("by date:")
     print(per_date)

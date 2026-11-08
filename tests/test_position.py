@@ -44,9 +44,7 @@ def state() -> pl.DataFrame:
 @pytest.fixture(scope="module")
 def scored(state: pl.DataFrame) -> pl.DataFrame:
     features = PROFILE_FEATURES + HISTORY_FEATURES
-    train = state.filter(
-        pl.col("start_position").is_in(SLOTS) & (pl.col("season") < CUTOFF)
-    )
+    train = state.filter(pl.col("start_position").is_in(SLOTS) & (pl.col("season") < CUTOFF))
     model = fit_slot_model(train, features)
     test = state.filter((pl.col("season") == CUTOFF) & pl.col("played"))
     return assign_positions(predict_slots(model, test, features))
@@ -101,8 +99,7 @@ def test_slot_model_beats_baselines_on_held_out_season(state: pl.DataFrame):
     counts = np.column_stack([test[f"prior_starts_{s}"].to_numpy() for s in SLOTS])
     majority = train["start_position"].mode().first()
     modal = [
-        SLOTS[i] if n > 0 else majority
-        for i, n in zip(counts.argmax(axis=1), counts.sum(axis=1))
+        SLOTS[i] if n > 0 else majority for i, n in zip(counts.argmax(axis=1), counts.sum(axis=1))
     ]
     modal_accuracy = float((pl.Series(modal) == test["start_position"]).mean())
 
@@ -169,12 +166,16 @@ def test_split_is_balanced_within_each_slot(scored: pl.DataFrame):
 def test_point_guards_outrank_shooting_guards_on_playmaking(scored: pl.DataFrame):
     """The split must follow its stated rule, team by team."""
     guards = scored.filter(pl.col("slot") == "G")
-    worst_pg = guards.filter(pl.col("position") == "PG").group_by(
-        ["game_id", "team_id"]
-    ).agg(pl.col("ewm_ast_pct_20").fill_null(0.0).min().alias("lo"))
-    best_sg = guards.filter(pl.col("position") == "SG").group_by(
-        ["game_id", "team_id"]
-    ).agg(pl.col("ewm_ast_pct_20").fill_null(0.0).max().alias("hi"))
+    worst_pg = (
+        guards.filter(pl.col("position") == "PG")
+        .group_by(["game_id", "team_id"])
+        .agg(pl.col("ewm_ast_pct_20").fill_null(0.0).min().alias("lo"))
+    )
+    best_sg = (
+        guards.filter(pl.col("position") == "SG")
+        .group_by(["game_id", "team_id"])
+        .agg(pl.col("ewm_ast_pct_20").fill_null(0.0).max().alias("hi"))
+    )
     joined = worst_pg.join(best_sg, on=["game_id", "team_id"], how="inner")
     assert joined.height > 1000
     assert (joined["lo"] >= joined["hi"]).all()

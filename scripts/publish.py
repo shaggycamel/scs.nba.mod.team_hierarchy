@@ -72,12 +72,7 @@ def main() -> None:
         for d in dates:
             conn.execute(text(f"DELETE FROM {TABLE} WHERE game_date = DATE '{d}'"))
         frame.write_database(TABLE, conn, if_table_exists="append")
-        conn.execute(
-            text(
-                f"CREATE OR REPLACE VIEW {PUBLIC_TABLE} AS "
-                f"SELECT * FROM {TABLE}"
-            )
-        )
+        conn.execute(text(f"CREATE OR REPLACE VIEW {PUBLIC_TABLE} AS SELECT * FROM {TABLE}"))
         conn.execute(text(f"GRANT SELECT ON {PUBLIC_TABLE} TO kobe_public"))
         conn.execute(text(f"REVOKE SELECT ON {TABLE} FROM kobe_public"))
 

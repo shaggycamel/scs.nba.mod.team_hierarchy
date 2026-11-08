@@ -83,15 +83,11 @@ def load_injury_reports(
     data_dir: Path = DATA_DIR, date_to_season: pl.DataFrame | None = None
 ) -> pl.DataFrame:
     """One row per (game_date, team, player) with a single resolved status."""
-    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select(
-        "team_id", "team_slug"
-    )
+    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select("team_id", "team_slug")
     raw = pl.read_parquet(data_dir / "nba" / "injuries.parquet")
     names = _name_to_nba_id(data_dir)
     inj = (
-        raw.join(
-            names, left_on="player_name", right_on="name", how="left", suffix="_xw"
-        )
+        raw.join(names, left_on="player_name", right_on="name", how="left", suffix="_xw")
         .with_columns(nba_id=pl.col("nba_id").fill_null(pl.col("nba_id_xw")))
         .filter(pl.col("nba_id").is_not_null())
         .rename({"nba_id": "player_id"})
@@ -105,9 +101,7 @@ def load_injury_reports(
     # plain dedupe is correct. Severity ordering is kept only to make the choice
     # deterministic for the ~21 rows whose status string is itself malformed.
     inj = (
-        inj.with_columns(
-            severity=pl.col("status").replace_strict(_STATUS_SEVERITY, default=99)
-        )
+        inj.with_columns(severity=pl.col("status").replace_strict(_STATUS_SEVERITY, default=99))
         .sort(["game_date", "team_id", "player_id", "severity"])
         .unique(subset=["game_date", "team_id", "player_id"], keep="first")
         .drop("severity")
@@ -122,9 +116,7 @@ def _team_games(pg: pl.DataFrame) -> pl.DataFrame:
     return pg.select("season", "team_id", "game_id", "game_date").unique()
 
 
-def membership_intervals(
-    pg: pl.DataFrame, injuries: pl.DataFrame | None = None
-) -> pl.DataFrame:
+def membership_intervals(pg: pl.DataFrame, injuries: pl.DataFrame | None = None) -> pl.DataFrame:
     """Per (season, team, player), the first and last date of dated evidence.
 
     A pair with no dated evidence -- on the season roster but never appearing
@@ -139,9 +131,9 @@ def membership_intervals(
         evidence = pl.concat(
             [
                 evidence,
-                injuries.select(
-                    "season", "team_id", "player_id", "game_date"
-                ).with_columns(source=pl.lit("injury")),
+                injuries.select("season", "team_id", "player_id", "game_date").with_columns(
+                    source=pl.lit("injury")
+                ),
             ],
             how="vertical",
         )
@@ -186,7 +178,9 @@ def build_panel(
         how="left",
     ).join(
         injuries.select(
-            "game_date", "team_id", "player_id",
+            "game_date",
+            "team_id",
+            "player_id",
             pl.col("status").alias("report_status"),
         ),
         on=["game_date", "team_id", "player_id"],
@@ -220,8 +214,10 @@ def build_panel(
         .drop_nulls()
         .unique(subset=["player_id"], keep="last")
     )
-    abbrs = pg.select("team_id", "team_abbreviation").drop_nulls().unique(
-        subset=["team_id"], keep="last"
+    abbrs = (
+        pg.select("team_id", "team_abbreviation")
+        .drop_nulls()
+        .unique(subset=["team_id"], keep="last")
     )
     panel = (
         panel.join(names, on="player_id", how="left", suffix="_ref")
@@ -250,8 +246,6 @@ def build_panel(
         _run=(absent != absent.shift(1).fill_null(False)).cum_sum().over("player_id")
     )
     panel = panel.with_columns(
-        absence_run_full=pl.when(absent)
-        .then(pl.len().over(["player_id", "_run"]))
-        .otherwise(0)
+        absence_run_full=pl.when(absent).then(pl.len().over(["player_id", "_run"])).otherwise(0)
     ).drop("_run")
     return panel

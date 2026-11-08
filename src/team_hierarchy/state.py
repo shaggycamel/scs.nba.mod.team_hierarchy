@@ -21,6 +21,7 @@ suite asserts the two agree on real dates.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import polars as pl
 
@@ -31,6 +32,7 @@ from .data import ROW_KEY, STATUS_COACH, canonical_sort  # noqa: F401
 DEPTH_ANCHOR_HL = 8
 
 PRESENCE_PENDING = "PENDING"
+
 
 def _prior_ewm(col: str, half_life: int) -> pl.Expr:
     """EWMA of `col` over games played strictly before this row."""
@@ -84,9 +86,7 @@ def add_pre_game_state(
             .alias(f"ewm_min_{hl}")
         )
         feats.append(_prior_ewm("min_played", hl).alias(f"ewm_min_played_{hl}"))
-        feats.extend(
-            _prior_ewm(stat, hl).alias(f"ewm_{stat}_{hl}") for stat in rate_stats
-        )
+        feats.extend(_prior_ewm(stat, hl).alias(f"ewm_{stat}_{hl}") for stat in rate_stats)
 
     # Availability and role rates over recent team games.
     for w in windows:
@@ -128,11 +128,9 @@ def add_pre_game_state(
             # this one, counting neither end: 0 means he played the previous
             # game. Subtracting 1 matters -- without it the current game, which
             # has not been played yet, is counted as already missed.
-            (
-                pl.col("_idx")
-                - played_idx.shift(1).forward_fill().over("player_id")
-                - 1
-            ).alias("team_games_missed"),
+            (pl.col("_idx") - played_idx.shift(1).forward_fill().over("player_id") - 1).alias(
+                "team_games_missed"
+            ),
             # Consecutive games the player was not with the team immediately
             # before this one. Unlike `absence_run_full` this looks only
             # backwards, so it is safe as a feature. Filling the "last game he
@@ -187,13 +185,16 @@ def candidate_roster(
     new team yet, so the panel would still put him on last season's team.
     """
     if roster is not None and not roster.is_empty():
-        active = roster.filter(
-            (pl.col("entry_date").is_null() | (pl.col("entry_date") <= as_of_date))
-            & (pl.col("exit_date").is_null() | (pl.col("exit_date") > as_of_date))
-        ).sort("entry_date", nulls_last=True).group_by("player_id").tail(1)
-        return active.select(
-            "season", "team_id", "team_abbreviation", "player_id", "player_name"
+        active = (
+            roster.filter(
+                (pl.col("entry_date").is_null() | (pl.col("entry_date") <= as_of_date))
+                & (pl.col("exit_date").is_null() | (pl.col("exit_date") > as_of_date))
+            )
+            .sort("entry_date", nulls_last=True)
+            .group_by("player_id")
+            .tail(1)
         )
+        return active.select("season", "team_id", "team_abbreviation", "player_id", "player_name")
 
     prior = panel.filter(pl.col("game_date") < as_of_date)
     recent_games = (
@@ -258,7 +259,7 @@ def state_as_of(
     panel: pl.DataFrame,
     as_of_date: date,
     lookback_games: int = 10,
-    **kwargs,
+    **kwargs: Any,
 ) -> pl.DataFrame:
     """Layer 1 state for every rostered player as of `as_of_date`.
 

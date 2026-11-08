@@ -69,9 +69,7 @@ def save(bundle: HierarchyBundle, path: Path) -> Path:
     with open(tmp, "wb") as fh:
         pickle.dump(bundle, fh, protocol=pickle.HIGHEST_PROTOCOL)
     tmp.replace(path)
-    path.with_name("model.json").write_text(
-        json.dumps(bundle.metadata, indent=2) + "\n"
-    )
+    path.with_name("model.json").write_text(json.dumps(bundle.metadata, indent=2) + "\n")
     return path
 
 
@@ -82,8 +80,7 @@ def load(path: Path, strict: bool = True) -> HierarchyBundle:
         raise TypeError(f"{path} is not a HierarchyBundle")
     if bundle.metadata.get("bundle_version") != BUNDLE_VERSION:
         raise ValueError(
-            f"{path}: bundle version {bundle.metadata.get('bundle_version')} "
-            f"!= {BUNDLE_VERSION}"
+            f"{path}: bundle version {bundle.metadata.get('bundle_version')} != {BUNDLE_VERSION}"
         )
     trained = bundle.metadata.get("packages", {})
     current = package_versions()

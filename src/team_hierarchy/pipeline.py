@@ -62,9 +62,7 @@ def base_frame(
 
 def add_positions(data: pl.DataFrame, fit_before: str) -> pl.DataFrame:
     """Fit the slot model on seasons before `fit_before`, then assign positions."""
-    train = data.filter(
-        pl.col("start_position").is_in(SLOTS) & (pl.col("season") < fit_before)
-    )
+    train = data.filter(pl.col("start_position").is_in(SLOTS) & (pl.col("season") < fit_before))
     features = PROFILE_FEATURES + HISTORY_FEATURES
     model = fit_slot_model(train, features)
     return assign_positions(predict_slots(model, data, features))
@@ -129,9 +127,9 @@ def fit_bundle(
     data = assign_positions(predict_slots(slot_model, data, position_features))
 
     play_model = fit_calibrated_play_model(injury_era(data), PLAY_FEATURES)
-    train = add_absorption_features(
-        add_out_of_fold_play_probability(injury_era(data))
-    ).filter(pl.col("played"))
+    train = add_absorption_features(add_out_of_fold_play_probability(injury_era(data))).filter(
+        pl.col("played")
+    )
     features = list(OWN_FEATURES + ABSORPTION_FEATURES)
     minutes_model = fit_regressor(train, features, MINUTES_TARGET)
     usage_model = fit_regressor(train, features, USAGE_TARGET)
@@ -175,9 +173,7 @@ def _attach_report_for_date(
     report = load_injury_reports(data_dir).filter(pl.col("game_date") == as_of_date)
     return (
         combined.join(
-            report.select(
-                "team_id", "player_id", pl.col("status").alias("_report_today")
-            ),
+            report.select("team_id", "player_id", pl.col("status").alias("_report_today")),
             on=["team_id", "player_id"],
             how="left",
         )
@@ -217,9 +213,7 @@ def daily_hierarchy(
     result as hypothetical.
     """
     panel = build_panel(data_dir, season_types)
-    fixtures = load_fixtures(data_dir, season_types).filter(
-        pl.col("game_date") == as_of_date
-    )
+    fixtures = load_fixtures(data_dir, season_types).filter(pl.col("game_date") == as_of_date)
     season = fixtures["season"].max() if not fixtures.is_empty() else None
     roster = load_team_roster(data_dir, season) if season is not None else None
     combined = _attach_report_for_date(

@@ -54,29 +54,23 @@ def _team(p_play: list[float], minutes: list[float], positions: list[str]) -> pl
 
 def test_a_player_does_not_absorb_his_own_absence():
     """Vacated minutes must exclude the player they are a feature for."""
-    out = add_absorption_features(
-        _team([0.0, 1.0, 1.0], [30.0, 20.0, 10.0], ["PG", "SG", "C"])
-    )
+    out = add_absorption_features(_team([0.0, 1.0, 1.0], [30.0, 20.0, 10.0], ["PG", "SG", "C"]))
     # The likely-absent player vacates 30 minutes, which the other two see.
     assert out["expected_vacated_minutes"].to_list() == pytest.approx([0.0, 30.0, 30.0])
 
 
 def test_same_position_vacancy_never_exceeds_total(frame: pl.DataFrame):
     assert (
-        frame["expected_vacated_minutes_same_position"]
-        <= frame["expected_vacated_minutes"] + 1e-9
+        frame["expected_vacated_minutes_same_position"] <= frame["expected_vacated_minutes"] + 1e-9
     ).all()
     assert (
-        frame["expected_vacated_usage_same_position"]
-        <= frame["expected_vacated_usage"] + 1e-9
+        frame["expected_vacated_usage_same_position"] <= frame["expected_vacated_usage"] + 1e-9
     ).all()
 
 
 def test_vacancy_is_attributed_to_the_right_position():
     """A missing centre frees centre minutes, not guard minutes."""
-    out = add_absorption_features(
-        _team([0.0, 1.0, 1.0], [30.0, 25.0, 20.0], ["C", "C", "PG"])
-    )
+    out = add_absorption_features(_team([0.0, 1.0, 1.0], [30.0, 25.0, 20.0], ["C", "C", "PG"]))
     by_pos = dict(zip(out["player_id"], out["expected_vacated_minutes_same_position"]))
     assert by_pos[1] == pytest.approx(30.0)  # the other centre
     assert by_pos[2] == pytest.approx(0.0)  # the guard sees none of it
@@ -97,12 +91,8 @@ def test_rank_improvement_is_a_redistribution(frame: pl.DataFrame):
 
 def test_an_absent_starter_promotes_his_backup():
     """The mechanism the layer exists for: the backup climbs, the starter falls."""
-    healthy = add_absorption_features(
-        _team([1.0, 1.0, 1.0], [32.0, 16.0, 10.0], ["C", "C", "PG"])
-    )
-    injured = add_absorption_features(
-        _team([0.05, 1.0, 1.0], [32.0, 16.0, 10.0], ["C", "C", "PG"])
-    )
+    healthy = add_absorption_features(_team([1.0, 1.0, 1.0], [32.0, 16.0, 10.0], ["C", "C", "PG"]))
+    injured = add_absorption_features(_team([0.05, 1.0, 1.0], [32.0, 16.0, 10.0], ["C", "C", "PG"]))
     backup_before = healthy.filter(pl.col("player_id") == 1)["available_rank"][0]
     backup_after = injured.filter(pl.col("player_id") == 1)["available_rank"][0]
     assert backup_after < backup_before
@@ -141,12 +131,12 @@ def test_absorption_beats_own_form_on_minutes(frame: pl.DataFrame):
     train = frame.filter((pl.col("season") < TEST_SEASON) & pl.col("played"))
     test = frame.filter((pl.col("season") == TEST_SEASON) & pl.col("played"))
 
-    own = predict(
-        fit_regressor(train, OWN_FEATURES, MINUTES_TARGET), test, OWN_FEATURES, "p"
-    )["p"].to_numpy()
-    allf = predict(
-        fit_regressor(train, combined, MINUTES_TARGET), test, combined, "p"
-    )["p"].to_numpy()
+    own = predict(fit_regressor(train, OWN_FEATURES, MINUTES_TARGET), test, OWN_FEATURES, "p")[
+        "p"
+    ].to_numpy()
+    allf = predict(fit_regressor(train, combined, MINUTES_TARGET), test, combined, "p")[
+        "p"
+    ].to_numpy()
     y = test[MINUTES_TARGET].to_numpy()
 
     s_own, s_all = regression_score(own, y), regression_score(allf, y)
@@ -172,9 +162,10 @@ def test_absorption_gain_is_larger_where_more_is_vacated(frame: pl.DataFrame):
 
     def gain(df: pl.DataFrame) -> float:
         y = df[MINUTES_TARGET].to_numpy()
-        return regression_score(df["p_all"].to_numpy(), y)["r2"] - regression_score(
-            df["p_own"].to_numpy(), y
-        )["r2"]
+        return (
+            regression_score(df["p_all"].to_numpy(), y)["r2"]
+            - regression_score(df["p_own"].to_numpy(), y)["r2"]
+        )
 
     cut = scored["expected_vacated_minutes"].quantile(0.75)
     high = gain(scored.filter(pl.col("expected_vacated_minutes") >= cut))
@@ -194,8 +185,8 @@ def test_usage_absorption_is_measured_not_assumed(frame: pl.DataFrame):
     test = frame.filter((pl.col("season") == TEST_SEASON) & pl.col("played"))
     y = test[USAGE_TARGET].to_numpy()
 
-    model = predict(
-        fit_regressor(train, combined, USAGE_TARGET), test, combined, "p"
-    )["p"].to_numpy()
+    model = predict(fit_regressor(train, combined, USAGE_TARGET), test, combined, "p")[
+        "p"
+    ].to_numpy()
     trailing = test["ewm_usg_pct_8"].fill_null(float(train[USAGE_TARGET].mean())).to_numpy()
     assert regression_score(model, y)["r2"] >= regression_score(trailing, y)["r2"]

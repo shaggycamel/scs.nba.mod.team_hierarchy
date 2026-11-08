@@ -51,9 +51,7 @@ _AWAY_WORDS = "G LEAGUE|GLEAGUE|ASSIGN|NOT WITH TEAM|PERSONAL|TRADE|RETURN TO"
 
 def _absence_status() -> pl.Expr:
     """Classify why a player did not play, from the box score comment."""
-    norm = (
-        pl.col("comment").fill_null("").str.to_uppercase().str.replace_all(r"[_\-]", " ")
-    )
+    norm = pl.col("comment").fill_null("").str.to_uppercase().str.replace_all(r"[_\-]", " ")
     return (
         pl.when(pl.col("played"))
         .then(pl.lit(STATUS_PLAYED))
@@ -81,9 +79,7 @@ def _absence_status() -> pl.Expr:
 
 def _safe_div(num: str, den: str) -> pl.Expr:
     """Divide, yielding null rather than inf/NaN when the denominator is 0."""
-    return (
-        pl.when(pl.col(den) > 0).then(pl.col(num) / pl.col(den)).otherwise(None)
-    )
+    return pl.when(pl.col(den) > 0).then(pl.col(num) / pl.col(den)).otherwise(None)
 
 
 def _per36(stat: str) -> pl.Expr:
@@ -132,10 +128,13 @@ def load_team_roster(
         roster = roster.filter(pl.col("season") == season)
     name_col = "player_name" if "player_name" in roster.columns else "player"
     return roster.select(
-        "season", "team_id", "team_slug",
+        "season",
+        "team_id",
+        "team_slug",
         pl.col("player_id").cast(pl.Int64),
         pl.col(name_col).alias("player_name"),
-        "entry_date", "exit_date",
+        "entry_date",
+        "exit_date",
     ).with_columns(pl.col("team_slug").alias("team_abbreviation"))
 
 
@@ -150,9 +149,7 @@ def load_fixtures(
     makes this the only source that can stop a daily run inventing a game for a
     team that is not playing.
     """
-    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select(
-        "team_id", "team_slug"
-    )
+    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select("team_id", "team_slug")
     sched = pl.read_parquet(data_dir / "nba" / "league_game_schedule.parquet")
     if season_types:
         sched = sched.filter(pl.col("season_type").is_in(season_types))
@@ -183,10 +180,29 @@ def load_player_games(
     box = pl.read_parquet(
         data_dir / "nba" / "player_box_score.parquet",
         columns=[
-            "game_id", "team_id", "team_abbreviation", "player_id", "player_name",
-            "start_position", "comment", "min", "usg_pct", "ast_pct", "reb_pct",
-            "oreb_pct", "dreb_pct", "ts_pct", "fga", "fg3_a", "fta", "ast", "reb",
-            "blk", "stl", "tov", "poss",
+            "game_id",
+            "team_id",
+            "team_abbreviation",
+            "player_id",
+            "player_name",
+            "start_position",
+            "comment",
+            "min",
+            "usg_pct",
+            "ast_pct",
+            "reb_pct",
+            "oreb_pct",
+            "dreb_pct",
+            "ts_pct",
+            "fga",
+            "fg3_a",
+            "fta",
+            "ast",
+            "reb",
+            "blk",
+            "stl",
+            "tov",
+            "poss",
         ],
     )
     sched = load_schedule(data_dir)
@@ -211,12 +227,14 @@ def load_player_games(
     # Rate stats are meaningless on a DNP row; null them so the played-only
     # EWMAs in state.py skip the row instead of averaging in a zero.
     rate_cols = [
-        "usg_pct", "ast_pct", "reb_pct", "oreb_pct", "dreb_pct", "ts_pct",
+        "usg_pct",
+        "ast_pct",
+        "reb_pct",
+        "oreb_pct",
+        "dreb_pct",
+        "ts_pct",
     ]
     pg = pg.with_columns(
-        [
-            pl.when(pl.col("played")).then(pl.col(c)).otherwise(None).alias(c)
-            for c in rate_cols
-        ]
+        [pl.when(pl.col("played")).then(pl.col(c)).otherwise(None).alias(c) for c in rate_cols]
     )
     return canonical_sort(pg)

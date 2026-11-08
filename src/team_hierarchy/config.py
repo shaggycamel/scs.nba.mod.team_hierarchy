@@ -7,9 +7,7 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = Path(
-    os.environ.get("TEAM_HIERARCHY_DATA", ROOT / "data")
-).expanduser().resolve()
+DATA_DIR = Path(os.environ.get("TEAM_HIERARCHY_DATA", ROOT / "data")).expanduser().resolve()
 
 # `nba/injuries` begins here. Layers 1-2 train on all available history
 # (2009-10 onward); layers 3-4 are restricted to this era.

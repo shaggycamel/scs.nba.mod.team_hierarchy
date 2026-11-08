@@ -102,13 +102,11 @@ def test_report_beats_the_recent_record_ablation(data: pl.DataFrame):
 
     m_state = fit_play_model(train, STATE_FEATURES)
     m_full = fit_play_model(train, STATE_FEATURES + REPORT_FEATURES)
-    s_state = score(
-        predict_play_probability(m_state, test, STATE_FEATURES)["p_play"].to_numpy(), y
-    )
+    s_state = score(predict_play_probability(m_state, test, STATE_FEATURES)["p_play"].to_numpy(), y)
     s_full = score(
-        predict_play_probability(
-            m_full, test, STATE_FEATURES + REPORT_FEATURES
-        )["p_play"].to_numpy(),
+        predict_play_probability(m_full, test, STATE_FEATURES + REPORT_FEATURES)[
+            "p_play"
+        ].to_numpy(),
         y,
     )
     assert s_full["log_loss"] < s_state["log_loss"] * 0.85, (
@@ -125,14 +123,12 @@ def test_isotonic_calibration_reduces_calibration_error(data: pl.DataFrame):
     test = data.filter(pl.col("season") == CUTOFF)
     y = test[TARGET].to_numpy().astype(int)
 
-    raw = predict_play_probability(
-        fit_play_model(train, features), test, features
-    )["p_play"].to_numpy()
+    raw = predict_play_probability(fit_play_model(train, features), test, features)[
+        "p_play"
+    ].to_numpy()
     calibrated = fit_calibrated_play_model(train, features).predict(test)
 
-    assert expected_calibration_error(
-        calibrated, y
-    ) < expected_calibration_error(raw, y)
+    assert expected_calibration_error(calibrated, y) < expected_calibration_error(raw, y)
     # Ranking must survive the correction.
     assert score(calibrated, y)["auc"] > score(raw, y)["auc"] - 0.01
 
@@ -153,12 +149,8 @@ def test_probabilities_are_in_range_and_ordered_by_status(data: pl.DataFrame):
     }
     # Out must sit far below both Questionable and no report at all.
     assert by_status[REPORT_LEVELS.index("Out")] < 0.15
-    assert by_status[REPORT_LEVELS.index("Out")] < by_status[
-        REPORT_LEVELS.index("Questionable")
-    ]
-    assert by_status[REPORT_LEVELS.index("Out")] < by_status[
-        REPORT_LEVELS.index(NO_REPORT)
-    ]
+    assert by_status[REPORT_LEVELS.index("Out")] < by_status[REPORT_LEVELS.index("Questionable")]
+    assert by_status[REPORT_LEVELS.index("Out")] < by_status[REPORT_LEVELS.index(NO_REPORT)]
 
 
 def test_metrics_behave_on_known_inputs():

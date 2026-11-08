@@ -31,9 +31,7 @@ def modal_slot_baseline(df: pl.DataFrame) -> pl.Series:
     counts = np.column_stack([df[f"prior_starts_{s}"].to_numpy() for s in SLOTS])
     best = counts.argmax(axis=1)
     has_history = counts.sum(axis=1) > 0
-    return pl.Series(
-        [SLOTS[i] if h else None for i, h in zip(best, has_history)]
-    )
+    return pl.Series([SLOTS[i] if h else None for i, h in zip(best, has_history)])
 
 
 def accuracy(pred: pl.Series, truth: pl.Series) -> float:
@@ -72,9 +70,7 @@ def main() -> None:
 
         # Baseline with a majority fallback where a player has no prior starts,
         # so every method is scored on the same rows.
-        modal_filled = pl.Series(
-            [m if m is not None else majority for m in modal]
-        )
+        modal_filled = pl.Series([m if m is not None else majority for m in modal])
 
         rows.append(
             {
@@ -85,9 +81,7 @@ def main() -> None:
                 "modal_coverage": float(modal.is_not_null().mean()),
                 "profile": accuracy(scored_profile["slot"], truth),
                 "profile+history": accuracy(scored_combined["slot"], truth),
-                "constrained_profile": accuracy(
-                    con_profile["slot"], con_profile["start_position"]
-                ),
+                "constrained_profile": accuracy(con_profile["slot"], con_profile["start_position"]),
                 "constrained_combined": accuracy(
                     con_combined["slot"], con_combined["start_position"]
                 ),
@@ -96,18 +90,27 @@ def main() -> None:
 
     res = pl.DataFrame(rows)
     pl.Config.set_tbl_width_chars(140)
-    print(res.select(
-        "season", "test_rows",
-        pl.col("majority").round(4),
-        pl.col("modal_prior").round(4),
-        pl.col("profile").round(4),
-        pl.col("profile+history").round(4),
-        pl.col("constrained_profile").round(4),
-        pl.col("constrained_combined").round(4),
-    ))
+    print(
+        res.select(
+            "season",
+            "test_rows",
+            pl.col("majority").round(4),
+            pl.col("modal_prior").round(4),
+            pl.col("profile").round(4),
+            pl.col("profile+history").round(4),
+            pl.col("constrained_profile").round(4),
+            pl.col("constrained_combined").round(4),
+        )
+    )
     print("\nmean over validation seasons:")
-    for c in ("majority", "modal_prior", "profile", "profile+history",
-              "constrained_profile", "constrained_combined"):
+    for c in (
+        "majority",
+        "modal_prior",
+        "profile",
+        "profile+history",
+        "constrained_profile",
+        "constrained_combined",
+    ):
         print(f"  {c:>16}: {res[c].mean():.4f}")
 
 

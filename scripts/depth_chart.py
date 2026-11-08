@@ -1,6 +1,6 @@
 """The daily run: print a team's position-assigned, availability-aware depth chart.
 
-    uv run python scripts/depth_chart.py BOS 2025-03-05
+uv run python scripts/depth_chart.py BOS 2025-03-05
 """
 
 from __future__ import annotations

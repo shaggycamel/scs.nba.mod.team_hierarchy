@@ -54,6 +54,8 @@ Two cautions for anyone reading per-status rates directly:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import polars as pl
 
@@ -106,12 +108,8 @@ def add_report_features(panel: pl.DataFrame) -> pl.DataFrame:
     The history columns are shifted and look only backwards.
     """
     levels = {s: i for i, s in enumerate(REPORT_LEVELS)}
-    out = canonical_sort(panel).with_columns(
-        _status=pl.col("report_status").fill_null(NO_REPORT)
-    )
-    out = out.with_columns(
-        report_level=pl.col("_status").replace_strict(levels).cast(pl.Int32)
-    )
+    out = canonical_sort(panel).with_columns(_status=pl.col("report_status").fill_null(NO_REPORT))
+    out = out.with_columns(report_level=pl.col("_status").replace_strict(levels).cast(pl.Int32))
     prior = pl.col("report_level").shift(1).over("player_id")
     is_out = pl.col("_status") == "Out"
     # Consecutive prior games carrying an Out report, counted backwards only.
@@ -126,9 +124,7 @@ def add_report_features(panel: pl.DataFrame) -> pl.DataFrame:
         report_out_streak=(idx - 1 - last_not_out).clip(0),
         # A first appearance has no previous status to differ from, which counts
         # as new rather than unknown.
-        report_is_new=(pl.col("report_level") != prior)
-        .fill_null(True)
-        .cast(pl.Int32),
+        report_is_new=(pl.col("report_level") != prior).fill_null(True).cast(pl.Int32),
     ).drop("_status")
 
 
@@ -140,7 +136,7 @@ def _matrix(df: pl.DataFrame, features: tuple[str, ...]) -> np.ndarray:
     return df.select(features).to_numpy().astype(np.float64)
 
 
-def fit_play_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs):
+def fit_play_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs: Any) -> Any:
     """Binary classifier for whether a player plays, trained on log loss."""
     import lightgbm as lgb
 
@@ -160,7 +156,7 @@ def fit_play_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs):
 
 
 def predict_play_probability(
-    model, df: pl.DataFrame, features: tuple[str, ...], name: str = "p_play"
+    model: Any, df: pl.DataFrame, features: tuple[str, ...], name: str = "p_play"
 ) -> pl.DataFrame:
     proba = model.predict_proba(_matrix(df, features))[:, 1]
     return df.with_columns(pl.Series(name, proba))
@@ -203,9 +199,7 @@ def auc(p: np.ndarray, y: np.ndarray) -> float:
     return float((ranks[y == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def expected_calibration_error(
-    p: np.ndarray, y: np.ndarray, bins: int = 20
-) -> float:
+def expected_calibration_error(p: np.ndarray, y: np.ndarray, bins: int = 20) -> float:
     """Mean gap between predicted and observed rates, weighted by bin size.
 
     A model can rank well and still be miscalibrated, and the hierarchy needs
@@ -245,7 +239,7 @@ class CalibratedPlayModel:
     relative to the test season that it will at serving time.
     """
 
-    def __init__(self, model, calibrator, features: tuple[str, ...]):
+    def __init__(self, model: Any, calibrator: Any, features: tuple[str, ...]) -> None:
         self.model = model
         self.calibrator = calibrator
         self.features = features
@@ -259,7 +253,7 @@ def fit_calibrated_play_model(
     train: pl.DataFrame,
     features: tuple[str, ...],
     calibration_fraction: float = 0.2,
-    **kwargs,
+    **kwargs: Any,
 ) -> CalibratedPlayModel:
     """Fit the play model, holding back the latest games to calibrate on."""
     from sklearn.isotonic import IsotonicRegression

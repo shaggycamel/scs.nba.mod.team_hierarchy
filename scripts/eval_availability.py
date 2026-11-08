@@ -62,9 +62,7 @@ def main() -> None:
         base = np.full(len(y), float(train[TARGET].mean()))
         table = status_rate_table(train)
         fallback = float(train[TARGET].mean())
-        status_only = np.array(
-            [table.get(int(l), fallback) for l in test["report_level"]]
-        )
+        status_only = np.array([table.get(int(l), fallback) for l in test["report_level"]])
         m_state = fit_play_model(train, STATE_FEATURES)
         m_full = fit_play_model(train, combined)
         p_state = predict_play_probability(m_state, test, STATE_FEATURES)["p_play"].to_numpy()
@@ -86,16 +84,27 @@ def main() -> None:
     pl.Config.set_tbl_rows(40)
     pl.Config.set_tbl_width_chars(120)
     print("\n=== per season ===")
-    print(res.select("season", "model", pl.col("log_loss").round(4),
-                     pl.col("brier").round(4), pl.col("auc").round(4),
-                     pl.col("ece").round(4)))
+    print(
+        res.select(
+            "season",
+            "model",
+            pl.col("log_loss").round(4),
+            pl.col("brier").round(4),
+            pl.col("auc").round(4),
+            pl.col("ece").round(4),
+        )
+    )
     print("\n=== mean over validation seasons ===")
-    print(res.group_by("model").agg(
-        pl.col("log_loss").mean().round(4),
-        pl.col("brier").mean().round(4),
-        pl.col("auc").mean().round(4),
-        pl.col("ece").mean().round(4),
-    ).sort("log_loss"))
+    print(
+        res.group_by("model")
+        .agg(
+            pl.col("log_loss").mean().round(4),
+            pl.col("brier").mean().round(4),
+            pl.col("auc").mean().round(4),
+            pl.col("ece").mean().round(4),
+        )
+        .sort("log_loss")
+    )
 
     # Calibration of the full model on the most recent season.
     season = VALIDATION_SEASONS[-1]

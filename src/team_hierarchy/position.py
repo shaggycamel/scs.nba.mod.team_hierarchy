@@ -27,6 +27,7 @@ predicted.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -121,7 +122,7 @@ def _matrix(df: pl.DataFrame, features: tuple[str, ...]) -> np.ndarray:
     return df.select(features).to_numpy().astype(np.float64)
 
 
-def fit_slot_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs):
+def fit_slot_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs: Any) -> Any:
     """Train the G/F/C classifier on rows where a player actually started."""
     import lightgbm as lgb
 
@@ -143,14 +144,10 @@ def fit_slot_model(train: pl.DataFrame, features: tuple[str, ...], **kwargs):
     return model
 
 
-def predict_slots(
-    model, state: pl.DataFrame, features: tuple[str, ...]
-) -> pl.DataFrame:
+def predict_slots(model: Any, state: pl.DataFrame, features: tuple[str, ...]) -> pl.DataFrame:
     """Attach slot probabilities, the argmax slot, and a continuous size score."""
     proba = model.predict_proba(_matrix(state, features))
-    out = state.with_columns(
-        [pl.Series(f"p_{s}", proba[:, i]) for i, s in enumerate(SLOTS)]
-    )
+    out = state.with_columns([pl.Series(f"p_{s}", proba[:, i]) for i, s in enumerate(SLOTS)])
     return out.with_columns(
         slot=pl.Series([SLOTS[i] for i in proba.argmax(axis=1)]),
         # -1 is an unambiguous guard, +1 an unambiguous centre. The spectrum

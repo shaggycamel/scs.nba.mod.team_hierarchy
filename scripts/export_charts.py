@@ -22,8 +22,6 @@ REPORTS = Path(__file__).resolve().parent.parent / "reports"
 POSITION_ORDER = {p: i for i, p in enumerate(("PG", "SG", "SF", "PF", "C"))}
 
 
-
-
 def chart_frame(as_of: date) -> pl.DataFrame:
     served = daily_hierarchy(as_of)
     return (
@@ -50,27 +48,27 @@ def chart_frame(as_of: date) -> pl.DataFrame:
             pl.col("available_rank").alias("available_rank"),
             pl.col("rank_improvement").alias("rank_gain"),
             pl.col("expected_vacated_minutes").round(1).alias("team_vacated_min"),
-            pl.col("expected_vacated_minutes_same_position")
-            .round(1)
-            .alias("vacated_min_same_pos"),
+            pl.col("expected_vacated_minutes_same_position").round(1).alias("vacated_min_same_pos"),
         )
         .with_columns(
             # Meaningless where the player has almost no chance of playing:
             # every unavailable player ties at zero expected minutes, so their
             # order among each other carries no information.
-            rank_gain=pl.when(pl.col("p_play") > 0.05)
-            .then(pl.col("rank_gain"))
-            .otherwise(None)
+            rank_gain=pl.when(pl.col("p_play") > 0.05).then(pl.col("rank_gain")).otherwise(None)
         )
     )
 
 
 def text_report(df: pl.DataFrame, as_of: date) -> str:
     """A plain-text companion to the CSV: how to read it, and what to distrust."""
-    teams = df.group_by("team").agg(
-        pl.col("expected_minutes").sum().round(0).alias("exp"),
-        (pl.col("injury_report").is_in(["Out", "Doubtful"])).sum().alias("out"),
-    ).sort("team")
+    teams = (
+        df.group_by("team")
+        .agg(
+            pl.col("expected_minutes").sum().round(0).alias("exp"),
+            (pl.col("injury_report").is_in(["Out", "Doubtful"])).sum().alias("out"),
+        )
+        .sort("team")
+    )
     lines = [
         f"NBA team hierarchy -- depth charts for {as_of:%d %B %Y}",
         "=" * 64,
@@ -142,13 +140,29 @@ def text_report(df: pl.DataFrame, as_of: date) -> str:
 _FONT = "font:13px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 _PROSE = "font:14px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 _NUMERIC = {
-    "depth", "p_play", "minutes_if_plays", "expected_minutes", "expected_usage",
-    "rank_gain", "roster_rank", "available_rank", "team_vacated_min",
-    "vacated_min_same_pos", "height_cm",
+    "depth",
+    "p_play",
+    "minutes_if_plays",
+    "expected_minutes",
+    "expected_usage",
+    "rank_gain",
+    "roster_rank",
+    "available_rank",
+    "team_vacated_min",
+    "vacated_min_same_pos",
+    "height_cm",
 }
 _CHART_COLS = [
-    "position", "depth", "player", "height_cm", "injury_report", "p_play",
-    "minutes_if_plays", "expected_minutes", "expected_usage", "rank_gain",
+    "position",
+    "depth",
+    "player",
+    "height_cm",
+    "injury_report",
+    "p_play",
+    "minutes_if_plays",
+    "expected_minutes",
+    "expected_usage",
+    "rank_gain",
 ]
 
 
@@ -162,7 +176,7 @@ def _html_table(df: pl.DataFrame, cols: list[str]) -> str:
         cells = "".join(
             f'<td align="right">{"" if r[c] is None else r[c]}</td>'
             if c in _NUMERIC
-            else f'<td>{"" if r[c] is None else r[c]}</td>'
+            else f"<td>{'' if r[c] is None else r[c]}</td>"
             for c in cols
         )
         stripe = ' bgcolor="#f7f7f7"' if i % 2 else ""
@@ -171,7 +185,7 @@ def _html_table(df: pl.DataFrame, cols: list[str]) -> str:
         f'<table border="0" cellspacing="0" cellpadding="6" '
         f'style="border-collapse:collapse;{_FONT};margin:6px 0 18px">'
         f'<thead><tr bgcolor="#2f2f2f" style="color:#fff">{head}</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody></table>'
+        f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 
@@ -186,11 +200,10 @@ def html_report(df: pl.DataFrame, as_of: date) -> str:
         charts.append(
             f'<h2 id="{team}" style="{_PROSE};font-size:17px;font-weight:600;'
             f'margin:28px 0 0;padding-top:12px;border-top:1px solid #ddd">'
-            f'{team} {where} {first["opponent"]}</h2>'
+            f"{team} {where} {first['opponent']}</h2>"
             f'<div style="{_FONT};font-size:12px;color:#666">game {first["game_id"]}'
-            f' &middot; team expected minutes {t["expected_minutes"].sum():.0f}'
-            f' of a ~236 budget</div>'
-            + _html_table(t, _CHART_COLS)
+            f" &middot; team expected minutes {t['expected_minutes'].sum():.0f}"
+            f" of a ~236 budget</div>" + _html_table(t, _CHART_COLS)
         )
     nav = " &middot; ".join(f'<a href="#{t}" style="color:#06c">{t}</a>' for t in teams)
     return f"""<!doctype html>

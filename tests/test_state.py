@@ -167,16 +167,12 @@ def test_no_feature_uses_a_future_game(state: pl.DataFrame):
     for pid in sample:
         g = rows.filter(pl.col("player_id") == pid)
         history: list[float] = []
-        for played, minutes, feature in zip(
-            g["played"], g["min"], g[f"ewm_min_played_{hl}"]
-        ):
+        for played, minutes, feature in zip(g["played"], g["min"], g[f"ewm_min_played_{hl}"]):
             if not history:
                 assert feature is None
             else:
                 weights = [(1 - alpha) ** k for k in range(len(history))]
-                expected = sum(
-                    w * x for w, x in zip(weights, reversed(history))
-                ) / sum(weights)
+                expected = sum(w * x for w, x in zip(weights, reversed(history))) / sum(weights)
                 assert feature == pytest.approx(expected, rel=1e-6)
             if played and minutes is not None:
                 history.append(minutes)
@@ -202,9 +198,19 @@ def test_serving_path_matches_training_path(panel: pl.DataFrame, state: pl.DataF
         for c in served.columns
         if served.schema[c].is_numeric()
         and c not in {"depth_rank", "team_size", "game_id", "team_id", "player_id"}
-        and c.startswith(("ewm_", "play_rate", "start_rate", "with_team_rate",
-                          "coach_dnp_rate", "career_games", "season_games",
-                          "team_games_", "days_"))
+        and c.startswith(
+            (
+                "ewm_",
+                "play_rate",
+                "start_rate",
+                "with_team_rate",
+                "coach_dnp_rate",
+                "career_games",
+                "season_games",
+                "team_games_",
+                "days_",
+            )
+        )
     ]
     merged = served.select(keys + feats).join(
         trained.select(keys + feats), on=keys, how="inner", suffix="_t"
@@ -319,10 +325,23 @@ def test_features_do_not_depend_on_input_row_order(panel: pl.DataFrame):
     a = add_pre_game_state(subset).sort(["player_id", "game_date", "game_id", "team_id"])
     b = add_pre_game_state(shuffled).sort(["player_id", "game_date", "game_id", "team_id"])
     feature_columns = [
-        c for c in a.columns
-        if c.startswith(("ewm_", "play_rate", "start_rate", "with_team_rate",
-                         "coach_dnp_rate", "career_", "season_", "team_games_",
-                         "days_", "absent_streak", "depth_rank"))
+        c
+        for c in a.columns
+        if c.startswith(
+            (
+                "ewm_",
+                "play_rate",
+                "start_rate",
+                "with_team_rate",
+                "coach_dnp_rate",
+                "career_",
+                "season_",
+                "team_games_",
+                "days_",
+                "absent_streak",
+                "depth_rank",
+            )
+        )
     ]
     assert len(feature_columns) > 40
     assert a.select(feature_columns).equals(b.select(feature_columns))

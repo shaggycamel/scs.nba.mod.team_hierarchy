@@ -35,7 +35,8 @@ def current_season(day: date) -> str:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--date", type=date.fromisoformat,
+        "--date",
+        type=date.fromisoformat,
         default=datetime.now(UTC).date(),
         help="slate date (default: today in UTC)",
     )
@@ -69,8 +70,15 @@ def parse_kickoff() -> datetime:
     return datetime.now(UTC)
 
 
-def log_run(kickoff: datetime, cadence: str, source: str, success: bool,
-            error: str | None, row_count: int | None, db_con: str) -> None:
+def log_run(
+    kickoff: datetime,
+    cadence: str,
+    source: str,
+    success: bool,
+    error: str | None,
+    row_count: int | None,
+    db_con: str,
+) -> None:
     import scs_hub
 
     hub = scs_hub.SportsHub(db_con=db_con)
@@ -105,10 +113,18 @@ def main(argv: list[str] | None = None) -> int:
     rows = None
     try:
         if not args.skip_fetch:
-            run("fetch", [
-                "scripts/00_fetch.py", "--through", season,
-                "--out", str(data_dir), "--db-con", args.db_con,
-            ])
+            run(
+                "fetch",
+                [
+                    "scripts/00_fetch.py",
+                    "--through",
+                    season,
+                    "--out",
+                    str(data_dir),
+                    "--db-con",
+                    args.db_con,
+                ],
+            )
 
         os.environ["TEAM_HIERARCHY_DATA"] = str(data_dir)
         from team_hierarchy.persist import load
@@ -124,9 +140,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.date}: no fixtures; nothing to publish")
         else:
             out = served.select(
-                "game_date", "game_id", "team_id", "player_id", "season",
-                "team_abbreviation", "opponent", "home", "player_name",
-                "position", pl.col("position_depth").cast(pl.Int64),
+                "game_date",
+                "game_id",
+                "team_id",
+                "player_id",
+                "season",
+                "team_abbreviation",
+                "opponent",
+                "home",
+                "player_name",
+                "position",
+                pl.col("position_depth").cast(pl.Int64),
                 pl.col("height_cm").cast(pl.Int64),
                 pl.col("report_status"),
                 pl.col("p_play").cast(pl.Float64),
@@ -145,18 +169,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             output.parent.mkdir(parents=True, exist_ok=True)
             out.write_parquet(output)
-            run("publish", [
-                "scripts/publish.py", "--input", str(output),
-                "--db-con", args.db_con,
-            ])
+            run(
+                "publish",
+                [
+                    "scripts/publish.py",
+                    "--input",
+                    str(output),
+                    "--db-con",
+                    args.db_con,
+                ],
+            )
     except Exception as exc:  # noqa: BLE001 - the runner needs one failure row
         error = f"{type(exc).__name__}: {exc}"
         print(f"failed: {error}", file=sys.stderr, flush=True)
 
     if result_file:
-        Path(result_file).write_text(
-            json.dumps({"row_count": rows if error is None else 0}) + "\n"
-        )
+        Path(result_file).write_text(json.dumps({"row_count": rows if error is None else 0}) + "\n")
     else:
         log_run(kickoff, args.cadence, args.source, error is None, error, rows, args.db_con)
     return 0 if error is None else 1

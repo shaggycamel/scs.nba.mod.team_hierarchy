@@ -43,8 +43,14 @@ def test_the_target_dates_injury_report_is_attached(served: pl.DataFrame):
 
 
 def test_outputs_are_present_and_in_range(served: pl.DataFrame):
-    for column in ("p_play", "expected_minutes", "expected_usage", "position",
-                   "position_depth", "minutes_if_plays"):
+    for column in (
+        "p_play",
+        "expected_minutes",
+        "expected_usage",
+        "position",
+        "position_depth",
+        "minutes_if_plays",
+    ):
         assert served[column].null_count() == 0, f"{column} has nulls"
     assert served["p_play"].min() >= 0.0 and served["p_play"].max() <= 1.0
     assert served["expected_minutes"].min() >= 0.0
@@ -57,9 +63,7 @@ def test_expected_minutes_is_availability_times_conditional_minutes(
 ):
     """The composition must hold exactly, so the two factors stay interpretable."""
     recomputed = served["p_play"] * served["minutes_if_plays"].clip(0.0)
-    assert (served["expected_minutes"] - recomputed).abs().max() == pytest.approx(
-        0.0, abs=1e-9
-    )
+    assert (served["expected_minutes"] - recomputed).abs().max() == pytest.approx(0.0, abs=1e-9)
 
 
 def test_every_team_gets_a_full_set_of_positions(served: pl.DataFrame):
@@ -106,9 +110,7 @@ def test_calibration_split_is_order_independent():
     from team_hierarchy.roster import build_panel
     from team_hierarchy.state import add_pre_game_state
 
-    data = injury_era(
-        add_report_features(add_pre_game_state(build_panel(pg=load_player_games())))
-    )
+    data = injury_era(add_report_features(add_pre_game_state(build_panel(pg=load_player_games()))))
     train = data.filter(pl.col("season") < "2024-25")
     test = data.filter(pl.col("season") == "2024-25").head(4000)
     features = STATE_FEATURES + REPORT_FEATURES
@@ -128,9 +130,7 @@ def test_output_identifies_the_fixture_it_describes(served: pl.DataFrame):
     # The sentinel used internally for virtual rows must not leak out.
     assert (served["game_id"] > 0).all()
     # A team plays one game a day, so each team maps to exactly one fixture.
-    per_team = served.group_by("team_abbreviation").agg(
-        pl.col("game_id").n_unique().alias("games")
-    )
+    per_team = served.group_by("team_abbreviation").agg(pl.col("game_id").n_unique().alias("games"))
     assert (per_team["games"] == 1).all()
 
 

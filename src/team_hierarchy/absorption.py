@@ -82,6 +82,8 @@ assuming it.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import polars as pl
 
@@ -201,9 +203,11 @@ def allocation_baseline(
     fill the budget. Any learned model has to beat this, not just the flat
     trailing average -- otherwise it is adding machinery for nothing.
     """
-    share = pl.when(pl.col("expected_available_minutes") > 0).then(
-        pl.col("expected_minute_share")
-    ).otherwise(0.0)
+    share = (
+        pl.when(pl.col("expected_available_minutes") > 0)
+        .then(pl.col("expected_minute_share"))
+        .otherwise(0.0)
+    )
     return df.with_columns((share * team_minutes).alias(column))
 
 
@@ -212,8 +216,11 @@ def _matrix(df: pl.DataFrame, features: tuple[str, ...]) -> np.ndarray:
 
 
 def fit_regressor(
-    train: pl.DataFrame, features: tuple[str, ...], target: str, **kwargs
-):
+    train: pl.DataFrame,
+    features: tuple[str, ...],
+    target: str,
+    **kwargs: Any,
+) -> Any:
     """Gradient-boosted regressor on players who actually took the floor."""
     import lightgbm as lgb
 
@@ -233,7 +240,7 @@ def fit_regressor(
     return model
 
 
-def predict(model, df: pl.DataFrame, features: tuple[str, ...], name: str) -> pl.DataFrame:
+def predict(model: Any, df: pl.DataFrame, features: tuple[str, ...], name: str) -> pl.DataFrame:
     return df.with_columns(pl.Series(name, model.predict(_matrix(df, features))))
 
 
