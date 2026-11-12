@@ -7,7 +7,7 @@ Called by `scs.nba.mod.runner` through `__main__.py`, or manually:
 Sequence:
   1. refresh the full hierarchy snapshot from Cockroach
   2. fit the point-in-time hierarchy for the target date
-  3. write the depth chart and publish it to mod.team_hierarchy
+  3. write the depth chart to mod.team_hierarchy_base
 """
 
 from __future__ import annotations

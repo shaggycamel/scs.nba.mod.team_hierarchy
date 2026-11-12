@@ -1,4 +1,4 @@
-"""Publish a daily depth-chart file to `mod.team_hierarchy`.
+"""Publish a daily depth-chart file to `mod.team_hierarchy_base`.
 
 Usage:
     uv run --group data python scripts/publish.py \
@@ -14,7 +14,6 @@ import polars as pl
 import scs_hub
 from sqlalchemy import text
 
-PUBLIC_TABLE = "mod.team_hierarchy"
 TABLE = "mod.team_hierarchy_base"
 
 DDL = f"""
@@ -72,14 +71,11 @@ def main() -> None:
         for d in dates:
             conn.execute(text(f"DELETE FROM {TABLE} WHERE game_date = DATE '{d}'"))
         frame.write_database(TABLE, conn, if_table_exists="append")
-        conn.execute(text(f"CREATE OR REPLACE VIEW {PUBLIC_TABLE} AS SELECT * FROM {TABLE}"))
-        conn.execute(text(f"GRANT SELECT ON {PUBLIC_TABLE} TO kobe_public"))
-        conn.execute(text(f"REVOKE SELECT ON {TABLE} FROM kobe_public"))
 
-    count = hub.db.read(f"SELECT count(*) AS n FROM {PUBLIC_TABLE}").item()
+    count = hub.db.read(f"SELECT count(*) AS n FROM {TABLE}").item()
     print(
         f"{args.db_con}: wrote {frame.height:,} rows across {len(dates)} dates "
-        f"to {PUBLIC_TABLE} (table now {count:,})"
+        f"to {TABLE} (table now {count:,})"
     )
 
 

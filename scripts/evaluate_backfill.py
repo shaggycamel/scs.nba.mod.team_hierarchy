@@ -68,7 +68,7 @@ def main() -> None:
         f"""
         SELECT game_date, game_id, team_id, player_id, p_play,
                minutes_if_plays, expected_minutes, expected_usage
-        FROM mod.team_hierarchy
+        FROM mod.team_hierarchy_vw
         WHERE game_date >= DATE '2026-10-01' AND game_id IN ({",".join(map(str, completed))})
         """
     )

@@ -187,8 +187,9 @@ version mismatch.
 
 `__main__.py` refreshes the snapshot, loads the 2025-26 bundle, builds the
 target date's depth chart and replaces that `game_date` in
-`mod.team_hierarchy`. It is scheduled through `nba/mod/_runner` on the NUC; see
-[`SCHEDULING.md`](SCHEDULING.md).
+`mod.team_hierarchy_base`. The public `mod.team_hierarchy_vw` is applied from
+`nba/database/sql/views/mod/`. It is scheduled through `nba/mod/_runner` on the
+NUC; see [`SCHEDULING.md`](SCHEDULING.md).
 
 Completed 2026-27 slates plus today:
 

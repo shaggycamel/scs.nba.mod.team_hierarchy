@@ -12,8 +12,9 @@ are working. The 2026-27 season is out-of-sample.
 - `load()` refuses a library-version mismatch.
 - Daily job loads the bundle; it does not refit.
 - `__main__.py` / `scripts/job.py` for `scs.nba.mod.runner`.
-- Publish to `mod.team_hierarchy`, keyed by
-  `(game_date, game_id, team_id, player_id)`.
+- Publish to `mod.team_hierarchy_base`, keyed by
+  `(game_date, game_id, team_id, player_id)`; the public
+  `mod.team_hierarchy_vw` is applied from `nba/database`.
 - `model_cutoff` and `model_version` written per row.
 - Backfill for completed 2026-27 slates plus today (5,674 rows, 18 dates).
 - Daily runner row and NUC cron entry.

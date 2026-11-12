@@ -63,7 +63,8 @@ TEAM_HIERARCHY_DATA=data/daily uv run python scripts/backfill.py \
 ```
 
 It uses the same 2025-26 bundle for every date and writes to
-`mod.team_hierarchy`.
+`mod.team_hierarchy_base`; the public `mod.team_hierarchy_vw` is applied by
+`nba/mod/_runner` after the job.
 
 ## Verification
 
@@ -75,4 +76,4 @@ cd /home/oli/shaggy_camel_sports/nba/mod/_runner
 ```
 
 Then check `util.update_log` for `source = 'scs.nba.mod.team_hierarchy'` and
-`mod.team_hierarchy` for the target `game_date`.
+`mod.team_hierarchy_vw` for the target `game_date`.
