@@ -18,6 +18,7 @@ from pathlib import Path
 
 import polars as pl
 
+from . import usage
 from .absorption import (
     ABSORPTION_FEATURES,
     MINUTES_TARGET,
@@ -130,9 +131,11 @@ def fit_bundle(
     train = add_absorption_features(add_out_of_fold_play_probability(injury_era(data))).filter(
         pl.col("played")
     )
+    train = usage.add_usage_state(train)
     features = list(OWN_FEATURES + ABSORPTION_FEATURES)
     minutes_model = fit_regressor(train, features, MINUTES_TARGET)
     usage_model = fit_regressor(train, features, USAGE_TARGET)
+    usage_head = usage.fit(train, features + list(usage.TRAILING_FEATURES))
 
     metadata = build_metadata(
         trained_through=through_season,
@@ -143,6 +146,7 @@ def fit_bundle(
             "position": position_features,
             "play": list(PLAY_FEATURES),
             "absorption": features,
+            "usage": features + list(usage.TRAILING_FEATURES),
         },
         git_commit=git_commit,
     )
@@ -151,10 +155,12 @@ def fit_bundle(
         play_model=play_model,
         minutes_model=minutes_model,
         usage_model=usage_model,
+        usage_head=usage_head,
         features={
             "position": position_features,
             "play": list(PLAY_FEATURES),
             "absorption": features,
+            "usage": features + list(usage.TRAILING_FEATURES),
         },
         metadata=metadata,
     )
@@ -243,9 +249,11 @@ def daily_hierarchy(
         train = add_absorption_features(
             add_out_of_fold_play_probability(injury_era(history))
         ).filter(pl.col("played"))
+        train = usage.add_usage_state(train)
         features = list(OWN_FEATURES + ABSORPTION_FEATURES)
         minutes_model = fit_regressor(train, features, MINUTES_TARGET)
         usage_model = fit_regressor(train, features, USAGE_TARGET)
+        usage_head = usage.fit(train, features + list(usage.TRAILING_FEATURES))
     else:
         data = assign_positions(
             predict_slots(bundle.position_model, data, bundle.features["position"])
@@ -256,6 +264,11 @@ def daily_hierarchy(
         features = bundle.features["absorption"]
         minutes_model = bundle.minutes_model
         usage_model = bundle.usage_model
+        usage_head = getattr(bundle, "usage_head", None)
+
+    # The trailing usage state is computed on the frame that still carries the
+    # virtual serving rows, so they inherit the player's last played game.
+    data = usage.add_usage_state(data)
 
     served = serving_rows(data)
     # The virtual serving rows carry the season of the player's last panel row,
@@ -268,7 +281,20 @@ def daily_hierarchy(
     )
     served = predict(minutes_model, served, features, "minutes_if_plays")
     served = predict(usage_model, served, features, "usage_if_plays")
-    return served.with_columns(
+    out = served.with_columns(
         expected_minutes=pl.col("p_play") * pl.col("minutes_if_plays").clip(0.0),
         expected_usage=pl.col("usage_if_plays").clip(0.0, 1.0),
-    ).sort(["team_abbreviation", "position", "position_depth"])
+    )
+
+    # The dedicated usage head. Left alongside `expected_usage` rather than
+    # replacing it until it has run live for a while; the two are compared in
+    # the reports and the dashboard can switch when the numbers hold.
+    if usage_head is not None:
+        rate, events = usage.predict(usage_head, out)
+        rate = usage.normalise_team_budget(out, rate)
+        out = out.with_columns(
+            expected_usage_model=pl.Series(rate),
+            expected_usage_events=pl.Series(events).clip(lower_bound=0.0)
+            * pl.col("minutes_if_plays").clip(0.0),
+        )
+    return out.sort(["team_abbreviation", "position", "position_depth"])

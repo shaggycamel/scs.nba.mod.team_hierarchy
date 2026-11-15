@@ -26,6 +26,10 @@ class HierarchyBundle:
     usage_model: object
     features: dict[str, list[str]]
     metadata: dict
+    # Fitted separately: the dedicated usage head (rate and events, blended and
+    # budget-normalised). Optional so a bundle pickled before it existed still
+    # loads; `daily_hierarchy` skips the new columns in that case.
+    usage_head: object | None = None
 
 
 def package_versions() -> dict[str, str]:

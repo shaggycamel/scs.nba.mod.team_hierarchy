@@ -139,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
         if served.is_empty():
             print(f"{args.date}: no fixtures; nothing to publish")
         else:
+            optional = [
+                pl.col(c).cast(pl.Float64)
+                for c in ("expected_usage_model", "expected_usage_events")
+                if c in served.columns
+            ]
             out = served.select(
                 "game_date",
                 "game_id",
@@ -162,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
                 pl.col("rank_improvement").cast(pl.Int64),
                 pl.col("expected_vacated_minutes").cast(pl.Float64),
                 pl.col("expected_vacated_minutes_same_position").cast(pl.Float64),
+                *optional,
             ).with_columns(
                 pl.lit(bundle.metadata["trained_through"]).alias("model_cutoff"),
                 pl.lit(bundle.metadata["created_at"]).alias("model_version"),

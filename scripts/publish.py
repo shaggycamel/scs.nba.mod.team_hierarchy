@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   minutes_if_plays double precision,
   expected_minutes double precision,
   expected_usage double precision,
+  expected_usage_model double precision,
+  expected_usage_events double precision,
   depth_rank bigint,
   available_rank bigint,
   rank_improvement bigint,
@@ -68,6 +70,12 @@ def main() -> None:
         # The table predates the provenance columns.
         conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS model_cutoff text"))
         conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS model_version text"))
+        # Columns added with the dedicated usage head. Optional on the frame so a
+        # pre-head bundle still publishes.
+        for column in ("expected_usage_model", "expected_usage_events"):
+            conn.execute(
+                text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {column} double precision")
+            )
         for d in dates:
             conn.execute(text(f"DELETE FROM {TABLE} WHERE game_date = DATE '{d}'"))
         frame.write_database(TABLE, conn, if_table_exists="append")

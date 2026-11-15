@@ -89,6 +89,43 @@ to R² 0.199 exactly where absences are largest.
 Composed end to end, `expected_minutes` reaches **R² 0.787, MAE 4.0 minutes**
 against actual minutes across every roster row, absentees counted as zero.
 
+## The usage head
+
+Layer 4's usage regression was the one head that never cleared its own bar: R²
+0.3421 against 0.3310 for a trailing mean, with the same MAE to three decimals.
+`team_hierarchy.usage` replaces it with a dedicated head and leaves the original
+columns in place so the two can be compared live.
+
+| 5+ minutes, walk-forward | trailing mean | layer 4 usage | usage head + budget |
+| --- | ---: | ---: | ---: |
+| 2024-25 MAE / R² | 0.0448 / 0.428 | 0.0443 / 0.440 | **0.0430 / 0.471** |
+| 2025-26 | 0.0452 / 0.425 | 0.0441 / 0.450 | **0.0431 / 0.474** |
+| 2026-27 | 0.0476 / 0.368 | 0.0454 / 0.422 | **0.0438 / 0.452** |
+
+Ratios are on the rows the trailing baseline can also speak to. Usage events
+(`FGA + 0.44 FTA + TOV`) come out at 3.16-3.18 MAE and R² 0.66-0.67, against
+3.37-3.47 and 0.60-0.63 for the trailing event count.
+
+Three things do the work: trailing state at several horizons (last 5 and last
+20, plus the trend between them), a second target in events per minute, and the
+team budget — minutes-weighted team usage is 0.1935 with an SD of 0.003 across
+team-games, and rescaling each team-game to it corrects the errors an
+independent per-player model cannot cancel.
+
+The state windows are built on the played subframe and attached with an as-of
+join plus one sentinel row per player a day after his last game. Without the
+sentinel the join is off by one game and costs 0.006 of MAE; `tests/test_usage.py`
+pins the correct behaviour against a direct computation.
+
+Published as `expected_usage_model` (rate, budget-normalised) and
+`expected_usage_events` (events with `minutes_if_plays`). Both are null until the
+bundle is refitted: the head is stored in `HierarchyBundle.usage_head`, and a
+bundle pickled before it existed simply omits the columns.
+
+```bash
+TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py --through-season 2025-26
+```
+
 ## What is weak
 
 - **Usage barely beats a trailing mean** (R² 0.3421 against 0.3310, identical
