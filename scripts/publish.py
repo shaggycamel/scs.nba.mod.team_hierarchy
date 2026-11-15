@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--db-con", default="cockroach-write")
+    parser.add_argument("--db-con", default="jetson-write")
     return parser.parse_args()
 
 

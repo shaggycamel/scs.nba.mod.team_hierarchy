@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out", type=Path, default=Path("artifacts/team_hierarchy_backfill.parquet")
     )
-    parser.add_argument("--db-con", default="cockroach-write")
+    parser.add_argument("--db-con", default="jetson-write")
     parser.add_argument("--limit", type=int, default=None)
     return parser.parse_args()
 

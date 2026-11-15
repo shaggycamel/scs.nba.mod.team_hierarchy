@@ -23,7 +23,7 @@ import scs_hub
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--season", default="2026-27")
-    parser.add_argument("--db-con", default="cockroach-read")
+    parser.add_argument("--db-con", default="jetson-read")
     parser.add_argument(
         "--data",
         type=Path,

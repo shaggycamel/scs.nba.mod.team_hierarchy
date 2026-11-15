@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--through", default="2026-27")
     parser.add_argument("--out", type=Path, default=Path("data/daily"))
-    parser.add_argument("--db-con", default="cockroach-read")
+    parser.add_argument("--db-con", default="jetson-read")
     return parser.parse_args()
 
 

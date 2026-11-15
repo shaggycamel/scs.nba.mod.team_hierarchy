@@ -42,7 +42,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--season", default=None)
     parser.add_argument("--cadence", default=os.environ.get("SCS_CADENCE", "daily"))
-    parser.add_argument("--db-con", default="cockroach-write")
+    parser.add_argument("--db-con", default="jetson-write")
     parser.add_argument("--source", default=os.environ.get("UPDATE_LOG_SOURCE", SOURCE))
     parser.add_argument("--skip-fetch", action="store_true")
     parser.add_argument(
