@@ -112,6 +112,11 @@ team budget — minutes-weighted team usage is 0.1935 with an SD of 0.003 across
 team-games, and rescaling each team-game to it corrects the errors an
 independent per-player model cannot cancel.
 
+Everything that was tested and rejected — four archetype formulations, standings
+and incentives, shrinkage, extra trees — is recorded in
+[`docs/usage/`](docs/usage/), with the reports it came from. The negative
+results are the expensive part; do not re-test them blind.
+
 The state windows are built on the played subframe and attached with an as-of
 join plus one sentinel row per player a day after his last game. Without the
 sentinel the join is off by one game and costs 0.006 of MAE; `tests/test_usage.py`
