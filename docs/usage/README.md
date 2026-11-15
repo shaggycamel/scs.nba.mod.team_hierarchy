@@ -1,8 +1,9 @@
 # Usage: the evidence behind the head
 
 Provenance: built in `scs.nba.mod.usage`, a standalone research repo, and moved
-here with the head it produced (`src/team_hierarchy/usage.py`). The reports in
-this directory are the originals, regenerated there; this file is the index.
+here with the head it produced (`src/team_hierarchy/usage.py`). That repo has
+been removed; the reports in this directory are the record, and
+`scripts/eval_usage.py` reproduces the headline accuracy from this repo.
 
 ## What the head is worth
 
