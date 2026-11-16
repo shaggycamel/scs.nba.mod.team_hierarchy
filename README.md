@@ -146,6 +146,46 @@ TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py --through-seas
 - A waived-and-re-signed player can read as one long absence;
   `absence_run_full` flags implausible runs (0.65% are over 60 games).
 
+## Horizon availability
+
+The daily job scores every unplayed slate in the next seven days. For a date
+whose report has not been published, the hierarchy's state-only `p_play` is
+badly overconfident: across 2026-27 rosters it averages 0.63 on rows where the
+actual play rate is 0.19. The injury model's per-game survival fills those
+dates instead (report wins whenever one exists).
+
+Sampled check on 2026-27 with the panel cut at each run date
+(`scripts/eval_horizon.py`, runs 2026-11-05 and 2026-11-11):
+
+| days ahead | n | play rate | state-only Brier | composed Brier | minutes MAE before → after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| all | 2,618 | 0.581 | 0.196 | 0.161 | 6.70 → 5.87 |
+| 1-2 | 1,118 | 0.560 | 0.188 | 0.150 | 6.45 → 5.54 |
+| 3-5 | 1,011 | 0.580 | 0.207 | 0.178 | 6.78 → 6.08 |
+| 6-7 | 489 | 0.632 | 0.191 | 0.151 | 7.13 → 6.23 |
+| rows the curve changed | 379 | 0.190 | 0.373 | 0.127 | 9.45 → 4.13 |
+
+The composed probability still runs a little high (0.69-0.71 against 0.58-0.63),
+but the minutes allocation moves with it. The panel cutoff is the whole point:
+without it the serving state sees games played between the run and the target,
+which flatters the state-only model and hides the problem.
+
+Reproduce:
+
+```bash
+# injury repo: the historical curve for the season
+INJURY_DURATION_DATA=data/full uv run python scripts/21_backfill_availability.py \
+  --season 2026-27
+
+# hierarchy repo
+TEAM_HIERARCHY_DATA=data/daily uv run python scripts/eval_horizon.py \
+  --availability ../injury_duration/artifacts/availability_2026_27.parquet \
+  --runs 2026-11-05,2026-11-11
+```
+
+This is a sampled check, not the full walk-forward. The seasonal refit is where
+it becomes a full-season test.
+
 ## Leakage and reproducibility
 
 Every feature is computed from games strictly before the row it sits on, and
@@ -227,11 +267,29 @@ version mismatch.
 
 ## Scheduled pipeline and backfill
 
-`__main__.py` refreshes the snapshot, loads the 2025-26 bundle, builds the
-target date's depth chart and replaces that `game_date` in
-`mod.team_hierarchy_base`. The public `mod.team_hierarchy_vw` is applied from
+`__main__.py` refreshes the snapshot, loads the 2025-26 bundle and scores every
+unplayed slate in the next seven days, replacing those `game_date` rows in
+`mod.team_hierarchy_base` in one publish. The public `mod.team_hierarchy_vw` and
+the day-of contract `mod.game_day_vw` are applied from
 `nba/database/sql/views/mod/`. It is scheduled through `nba/mod/_runner` on the
 NUC; see [`SCHEDULING.md`](SCHEDULING.md).
+
+A date freezes once any result is ingested, so a partially played slate is
+never rewritten. Pass `--date 2026-11-07` to score one slate instead of the
+horizon.
+
+Availability has three sources, in order:
+
+| condition | `p_play` from | `p_play_source` |
+| --- | --- | --- |
+| an injury report exists for that game date | the calibrated play model | `report` |
+| no report, active injury spell | `1 - surv` from `mod.injury_game_availability_base` | `injury` |
+| no report, no spell | the calibrated play model | `state` |
+
+The override runs before absorption, so an expected return also changes the
+minutes his replacement can absorb. `p_play_injury` carries the curve's value
+alongside the final `p_play`. The injury row is required: the job fails rather
+than silently falling back to the overconfident state-only probability.
 
 Completed 2026-27 slates plus today:
 

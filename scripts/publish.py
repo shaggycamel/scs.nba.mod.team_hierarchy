@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   height_cm bigint,
   report_status text,
   p_play double precision,
+  p_play_source text,
+  p_play_injury double precision,
   minutes_if_plays double precision,
   expected_minutes double precision,
   expected_usage double precision,
@@ -76,6 +78,12 @@ def main() -> None:
             conn.execute(
                 text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {column} double precision")
             )
+        # Availability provenance: which model produced p_play, and the injury
+        # curve it overrode.
+        conn.execute(
+            text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS p_play_injury double precision")
+        )
+        conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS p_play_source text"))
         for d in dates:
             conn.execute(text(f"DELETE FROM {TABLE} WHERE game_date = DATE '{d}'"))
         frame.write_database(TABLE, conn, if_table_exists="append")

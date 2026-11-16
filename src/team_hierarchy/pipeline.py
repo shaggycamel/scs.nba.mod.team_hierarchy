@@ -35,7 +35,7 @@ from .availability import (
     fit_calibrated_play_model,
     injury_era,
 )
-from .config import DATA_DIR, SEASON_TYPES
+from .config import DATA_DIR, SEASON_TYPES, SERVING_GAME_ID
 from .data import load_fixtures, load_team_roster
 from .persist import HierarchyBundle, build_metadata
 from .position import (
@@ -167,16 +167,29 @@ def fit_bundle(
 
 
 def _attach_report_for_date(
-    combined: pl.DataFrame, as_of_date: date, data_dir: Path
-) -> pl.DataFrame:
+    combined: pl.DataFrame, as_of_date: date, data_dir: Path, include_report: bool = True
+) -> tuple[pl.DataFrame, bool]:
     """Fill the target date's rows with that date's injury report.
 
     The virtual rows arrive with a null `report_status` because they were not in
     the panel when `build_panel` joined the report. Without this the daily run
     would treat every player as unreported -- the single most consequential
     difference between what it sees and what it was trained on.
+
+    Returns the frame and whether a report exists for the date at all. A published
+    report that does not list a player is a statement about that player; an
+    unpublished one is not, and the two must not be conflated when deciding
+    whether the injury curve may fill the row.
+
+    `include_report=False` is the no-report ablation: it leaves the target date
+    exactly as a future date looks before its report is published, which is what
+    the horizon evaluation needs.
     """
+    if not include_report:
+        return combined, False
     report = load_injury_reports(data_dir).filter(pl.col("game_date") == as_of_date)
+    if report.is_empty():
+        return combined, False
     return (
         combined.join(
             report.select("team_id", "player_id", pl.col("status").alias("_report_today")),
@@ -188,8 +201,63 @@ def _attach_report_for_date(
             .then(pl.col("_report_today"))
             .otherwise(pl.col("report_status"))
         )
-        .drop("_report_today")
+        .drop("_report_today"),
+        True,
     )
+
+
+def _apply_availability(
+    data: pl.DataFrame,
+    availability: pl.DataFrame | None,
+    allow_injury: bool = True,
+) -> pl.DataFrame:
+    """Let the injury curve fill availability where the report has no row.
+
+    The report is authoritative for any game it covers, so this only replaces
+    `p_play` on serving rows with a null `report_status`. `allow_injury=False`
+    means a report exists for the date: an unlisted player is then the report's
+    statement that he is available, not a gap for the curve to fill.
+    It runs before absorption, so a teammate's expected return moves the minutes
+    his replacement can absorb.
+    """
+    if availability is None:
+        out = data
+        p_available = pl.lit(None, dtype=pl.Float64)
+    else:
+        keyed = availability.filter(pl.col("p_available").is_not_null())
+        if "prediction_date" in keyed.columns:
+            keyed = keyed.sort("prediction_date")
+        keyed = (
+            keyed.unique(subset=["player_id", "game_date"], keep="last")
+            .select(
+                pl.col("player_id").cast(pl.Int64),
+                pl.col("game_date"),
+                pl.col("p_available").cast(pl.Float64),
+            )
+        )
+        out = data.join(keyed, on=["player_id", "game_date"], how="left")
+        p_available = pl.col("p_available")
+
+    serving = pl.col("game_id") == SERVING_GAME_ID
+    injury_allowed = pl.lit(allow_injury)
+    use_injury = (
+        serving
+        & injury_allowed
+        & pl.col("report_status").is_null()
+        & p_available.is_not_null()
+    )
+    report_covered = serving & (~injury_allowed | pl.col("report_status").is_not_null())
+    out = out.with_columns(
+        pl.when(use_injury).then(p_available).otherwise(pl.col("p_play")).alias("p_play"),
+        pl.when(serving).then(p_available).otherwise(None).alias("p_play_injury"),
+        pl.when(report_covered)
+        .then(pl.lit("report"))
+        .when(use_injury)
+        .then(pl.lit("injury"))
+        .otherwise(pl.lit("state"))
+        .alias("p_play_source"),
+    )
+    return out.drop("p_available") if availability is not None else out
 
 
 def daily_hierarchy(
@@ -199,6 +267,9 @@ def daily_hierarchy(
     lookback_games: int = 10,
     require_fixture: bool = True,
     bundle: HierarchyBundle | None = None,
+    availability: pl.DataFrame | None = None,
+    include_report: bool = True,
+    panel_through: date | None = None,
 ) -> pl.DataFrame:
     """The daily run: a ranked, position-assigned depth chart for every team.
 
@@ -219,13 +290,18 @@ def daily_hierarchy(
     result as hypothetical.
     """
     panel = build_panel(data_dir, season_types)
+    if panel_through is not None:
+        # The backtest hook: simulate a run on `panel_through` predicting a later
+        # date. Without it the serving state sees games played between the two.
+        panel = panel.filter(pl.col("game_date") < panel_through)
     fixtures = load_fixtures(data_dir, season_types).filter(pl.col("game_date") == as_of_date)
     season = fixtures["season"].max() if not fixtures.is_empty() else None
     roster = load_team_roster(data_dir, season) if season is not None else None
-    combined = _attach_report_for_date(
+    combined, report_published = _attach_report_for_date(
         append_serving_rows(panel, as_of_date, lookback_games, roster),
         as_of_date,
         data_dir,
+        include_report=include_report,
     )
     data = add_report_features(prepare(add_pre_game_state(combined), data_dir))
 
@@ -241,8 +317,9 @@ def daily_hierarchy(
         # are position-aware and the absorption frame is built from this slice.
         history = data.filter(before)
         play_model = fit_calibrated_play_model(injury_era(history), PLAY_FEATURES)
+        data = data.with_columns(p_play=pl.Series(play_model.predict(data)))
         data = add_absorption_features(
-            data.with_columns(p_play=pl.Series(play_model.predict(data)))
+            _apply_availability(data, availability, allow_injury=not report_published)
         )
 
         # Layer 4 trains on the same out-of-fold frame the evaluation validated.
@@ -258,8 +335,9 @@ def daily_hierarchy(
         data = assign_positions(
             predict_slots(bundle.position_model, data, bundle.features["position"])
         )
+        data = data.with_columns(p_play=pl.Series(bundle.play_model.predict(data)))
         data = add_absorption_features(
-            data.with_columns(p_play=pl.Series(bundle.play_model.predict(data)))
+            _apply_availability(data, availability, allow_injury=not report_published)
         )
         features = bundle.features["absorption"]
         minutes_model = bundle.minutes_model

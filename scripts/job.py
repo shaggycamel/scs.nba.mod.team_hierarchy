@@ -5,9 +5,12 @@ Called by `scs.nba.mod.runner` through `__main__.py`, or manually:
     uv run --group data python __main__.py --date 2026-11-07
 
 Sequence:
-  1. refresh the full hierarchy snapshot from Cockroach
-  2. fit the point-in-time hierarchy for the target date
+  1. refresh the full hierarchy snapshot
+  2. score every unplayed slate in the next `--days` window
   3. write the depth chart to mod.team_hierarchy_base
+
+Availability is the report when one exists for the game date; otherwise the
+injury-duration curve fills it (see `_apply_availability`).
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -37,14 +40,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--date",
         type=date.fromisoformat,
-        default=datetime.now(UTC).date(),
-        help="slate date (default: today in UTC)",
+        default=None,
+        help="score one slate instead of the horizon",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="calendar days of unplayed slates to score (default: 7)",
     )
     parser.add_argument("--season", default=None)
-    parser.add_argument("--cadence", default=os.environ.get("SCS_CADENCE", "daily"))
+    parser.add_argument("--cadence", default=os.environ.get("SCS_CADENCE", "intraday"))
     parser.add_argument("--db-con", default="jetson-write")
     parser.add_argument("--source", default=os.environ.get("UPDATE_LOG_SOURCE", SOURCE))
     parser.add_argument("--skip-fetch", action="store_true")
+    parser.add_argument(
+        "--skip-freshness",
+        action="store_true",
+        help="skip the injury/box-score freshness gates (manual backfills)",
+    )
     parser.add_argument(
         "--model",
         type=Path,
@@ -101,13 +115,93 @@ def log_run(
     )
 
 
+def horizon_dates(
+    schedule: pl.DataFrame, season: str, start: date, days: int
+) -> list[date]:
+    """Slates in the window whose results have not been ingested.
+
+    A date freezes once any result arrives, so a partially played slate is
+    never rewritten and its first pre-game rows survive.
+    """
+    window = schedule.filter(
+        (pl.col("season") == season)
+        & (pl.col("season_type") == "Regular Season")
+        & (pl.col("game_date") >= start)
+        & (pl.col("game_date") <= start + timedelta(days=days - 1))
+    )
+    if window.is_empty():
+        return []
+    return (
+        window.group_by("game_date")
+        .agg(pl.col("team_winner").is_null().all().alias("unplayed"))
+        .filter("unplayed")
+        .sort("game_date")["game_date"]
+        .to_list()
+    )
+
+
+def require_fresh(
+    hub, task: str, max_age_minutes: int, label: str
+) -> None:
+    """Fail when an upstream task has not written recently."""
+    last = hub.db.read(
+        "SELECT max(task_time) AS t FROM util.update_log "
+        f"WHERE task = '{task}' AND success"
+    ).item()
+    if last is None:
+        raise RuntimeError(f"no successful {label} update in util.update_log")
+    age = datetime.now(UTC) - last
+    if age > timedelta(minutes=max_age_minutes):
+        raise RuntimeError(
+            f"{label} data is {age} old; expected an update within "
+            f"{max_age_minutes} minutes"
+        )
+
+
+def load_availability(hub, max_age_minutes: int = 180) -> pl.DataFrame:
+    """The latest per-game injury curve, or a loud failure.
+
+    Falling back to the hierarchy's own state-only probability would publish
+    the overconfident numbers this table exists to replace.
+    """
+    try:
+        frame = hub.db.read(
+            """
+            SELECT prediction_date, player_id, game_date, p_available, generated_at
+            FROM mod.injury_game_availability_base
+            WHERE prediction_date = (
+                SELECT max(prediction_date) FROM mod.injury_game_availability_base
+            )
+            """
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "mod.injury_game_availability_base is unavailable; run "
+            "scs.nba.mod.injury_duration first"
+        ) from exc
+    if frame.is_empty():
+        raise RuntimeError(
+            "mod.injury_game_availability_base has no rows; run "
+            "scs.nba.mod.injury_duration first"
+        )
+    newest = frame["generated_at"].max()
+    if newest is not None and datetime.now(UTC) - newest > timedelta(
+        minutes=max_age_minutes
+    ):
+        raise RuntimeError(
+            "mod.injury_game_availability_base is "
+            f"{datetime.now(UTC) - newest} old; the injury job has not run"
+        )
+    return frame.select("prediction_date", "player_id", "game_date", "p_available")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     kickoff = parse_kickoff()
     result_file = os.environ.get("SCS_RESULT_FILE")
-    season = args.season or current_season(args.date)
+    today = datetime.now(UTC).date()
+    season = args.season or current_season(args.date or today)
     data_dir = ROOT / "data/daily"
-    output = ROOT / f"artifacts/team_hierarchy_{args.date}.parquet"
 
     error = None
     rows = None
@@ -130,15 +224,52 @@ def main(argv: list[str] | None = None) -> int:
         from team_hierarchy.persist import load
         from team_hierarchy.pipeline import daily_hierarchy
 
-        model_path = args.model if args.model.is_absolute() else ROOT / args.model
-        if not model_path.exists():
-            raise FileNotFoundError(f"missing model bundle: {model_path}")
-        bundle = load(model_path)
-        served = daily_hierarchy(args.date, bundle=bundle)
+        schedule = pl.read_parquet(data_dir / "nba/league_game_schedule.parquet")
+        dates = (
+            [args.date]
+            if args.date is not None
+            else horizon_dates(schedule, season, today, args.days)
+        )
+        if not dates:
+            print(f"no unplayed fixtures in the next {args.days} days; nothing to publish")
+            served = pl.DataFrame()
+        else:
+            import scs_hub
+
+            hub = scs_hub.SportsHub(db_con=args.db_con)
+            if not args.skip_freshness:
+                require_fresh(hub, "nba.get_team_injuries", 120, "injury report")
+                require_fresh(hub, "nba.get_player_box_score", 30 * 60, "box score")
+            availability = load_availability(hub)
+
+            model_path = args.model if args.model.is_absolute() else ROOT / args.model
+            if not model_path.exists():
+                raise FileNotFoundError(f"missing model bundle: {model_path}")
+            bundle = load(model_path)
+            frames = [
+                frame
+                for frame in (
+                    daily_hierarchy(day, bundle=bundle, availability=availability)
+                    for day in dates
+                )
+                if not frame.is_empty()
+            ]
+            served = pl.concat(frames) if frames else pl.DataFrame()
+            if served.is_empty():
+                raise RuntimeError(f"no hierarchy rows for {dates}")
+            missing = sorted(set(dates) - set(served["game_date"].unique().to_list()))
+            if missing:
+                raise RuntimeError(f"no hierarchy rows for scheduled dates: {missing}")
+
         rows = served.height
         if served.is_empty():
-            print(f"{args.date}: no fixtures; nothing to publish")
+            print(f"{today}: no fixtures; nothing to publish")
         else:
+            output = ROOT / (
+                f"artifacts/team_hierarchy_{args.date}.parquet"
+                if args.date is not None
+                else f"artifacts/team_hierarchy_{today}_{args.days}d.parquet"
+            )
             optional = [
                 pl.col(c).cast(pl.Float64)
                 for c in ("expected_usage_model", "expected_usage_events")
@@ -159,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
                 pl.col("height_cm").cast(pl.Int64),
                 pl.col("report_status"),
                 pl.col("p_play").cast(pl.Float64),
+                pl.col("p_play_injury").cast(pl.Float64),
+                pl.col("p_play_source"),
                 pl.col("minutes_if_plays").cast(pl.Float64),
                 pl.col("expected_minutes").cast(pl.Float64),
                 pl.col("expected_usage").cast(pl.Float64),

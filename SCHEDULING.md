@@ -12,25 +12,37 @@ job_family          model
 schema              mod
 table_name          team_hierarchy
 associated_function scs.nba.mod.team_hierarchy
-cadence             daily
+cadence             intraday
 schema_sequence     NULL
 function_sequence   NULL
 pause               FALSE
 ```
+
+Injury carries `function_sequence = 1`; hierarchy is NULL so the runner's
+`NULLS LAST` ordering puts it after injury. The hierarchy job reads
+`mod.injury_game_availability_base`, so the order is a data dependency, not a
+preference.
 
 The runner derives the repo directory from the last dotted segment
 (`team_hierarchy`) and runs its root `__main__.py`.
 
 ## Execution
 
-The same NUC cron entry as the injury model:
+Two model runs a day, both after the database `intraday` refresh that writes
+`nba.get_team_injuries` (16:00 and 22:00 UTC):
 
 ```cron
-45 22 * * *  $NBA_JOBS/mod/_runner/cron.sh daily >> $NBA_JOBS/mod/_runner/cron.log 2>&1
+15 16 * * *  $NBA_JOBS/mod/_runner/cron.sh intraday >> $NBA_JOBS/mod/_runner/cron.log 2>&1
+15 22 * * *  $NBA_JOBS/mod/_runner/cron.sh intraday >> $NBA_JOBS/mod/_runner/cron.log 2>&1
 ```
 
-22:45 UTC is 11:45 NZDT (12:45 NZST in winter). The runner SSHes to the Jetson
-and runs, from `/home/oli/shaggy_camel_sports/nba/mod/team_hierarchy`:
+Do not add the 03:45 or 07:00 slots: the 13:00 database `daily` run is the only
+writer of box scores, so those runs would carry two-night-old form.
+
+The job fails if `nba.get_team_injuries` has not succeeded within two hours, if
+the box-score task is more than 30 hours old, or if the availability table has
+no rows. The runner SSHes to the Jetson and runs, from
+`/home/oli/shaggy_camel_sports/nba/mod/team_hierarchy`:
 
 ```bash
 uv run --frozen --group data python __main__.py

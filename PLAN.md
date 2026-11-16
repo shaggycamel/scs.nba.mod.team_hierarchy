@@ -1,7 +1,7 @@
 # Team Hierarchy — Production Checklist
 
-Status: 2026-11-07. The model, frozen bundle, daily job and Cockroach output
-are working. The 2026-27 season is out-of-sample.
+Status: 2026-11-16. The model, frozen bundle, daily job and Jetson output are
+working. The 2026-27 season is out-of-sample.
 
 ## Done
 
@@ -16,8 +16,13 @@ are working. The 2026-27 season is out-of-sample.
   `(game_date, game_id, team_id, player_id)`; the public
   `mod.team_hierarchy_vw` is applied from `nba/database`.
 - `model_cutoff` and `model_version` written per row.
-- Backfill for completed 2026-27 slates plus today (5,674 rows, 18 dates).
-- Daily runner row and NUC cron entry.
+- Seven-day horizon over unplayed slates, with a partially played date frozen.
+- Availability precedence: report, then the injury curve, then state-only;
+  `p_play_source` and `p_play_injury` record which one produced the row.
+- `mod.game_day_vw` joins the horizon, the latest injury spell and the
+  archetype profile for the day-of contract.
+- `scripts/eval_horizon.py` compares the composed curve with state-only at the
+  same information set; the sampled 2026-27 check is in the README.
 - `SCHEDULING.md`, `README` production sections.
 - 60 tests, ruff clean.
 
@@ -27,6 +32,8 @@ are working. The 2026-27 season is out-of-sample.
 - Monitoring/alert thresholds for row-count and empty-slate anomalies.
 - Current-season/incremental fetch instead of the full 595k-row refresh.
 - Seasonal refit reminder and bundle rollback runbook.
+- Run `eval_horizon.py` over the full 2026-27 season at the next refit; the
+  current check samples two run dates.
 
 ## Seasonal refit
 
