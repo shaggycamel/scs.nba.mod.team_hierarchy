@@ -98,12 +98,14 @@ MINUTES_TARGET = "min"
 USAGE_TARGET = "usg_pct"
 
 OWN_FEATURES = (
+    "ewm_min_3",
     "ewm_min_8",
     "ewm_min_20",
     "ewm_min_played_8",
     "ewm_usg_pct_8",
     "ewm_usg_pct_20",
     "play_rate_10",
+    "start_rate_5",
     "depth_rank",
     "p_play",
     "days_rest",
