@@ -78,13 +78,13 @@ substitute.
 | season mean | 5.348 | 7.042 | 0.5430 |
 | trailing mean | 5.163 | 6.753 | 0.5798 |
 | mechanical minute-budget allocation | 5.352 | 7.100 | 0.5361 |
-| model, own form only | 5.052 | 6.535 | 0.6067 |
-| model, own form + absorption | **4.762** | **6.158** | **0.6510** |
+| model, own form only | 4.916 | 6.368 | 0.6265 |
+| model, own form + absorption | **4.673** | **6.053** | **0.6627** |
 
-Absorption is worth 0.044 of R² overall and 0.101 on the quartile with the most
-minutes in doubt, where the model reaches 0.491 against 0.390 for own form
+Absorption is worth 0.036 of R² overall and 0.090 on the quartile with the most
+minutes in doubt, where the model reaches 0.509 against 0.419 for own form
 alone. The mechanical allocation matches a trailing mean overall, then collapses
-to R² 0.199 exactly where absences are largest.
+to R² 0.201 exactly where absences are largest.
 
 Composed end to end, `expected_minutes` reaches **R² 0.787, MAE 4.0 minutes**
 against actual minutes across every roster row, absentees counted as zero.

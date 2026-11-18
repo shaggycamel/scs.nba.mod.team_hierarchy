@@ -37,13 +37,13 @@ Measured on 2024-25 and 2025-26, each trained only on earlier seasons:
       season mean                   5.348   7.042  0.5430
       trailing mean                 5.163   6.753  0.5798
       allocation baseline           5.352   7.100  0.5361
-      model, own form only          5.052   6.535  0.6067
-      model, own + absorption       4.762   6.158  0.6510
+      model, own form only          4.916   6.368  0.6265
+      model, own + absorption       4.673   6.053  0.6627
 
     same, top quartile of expected vacated minutes
-      allocation baseline           6.335   8.416  0.1993
-      model, own form only          5.662   7.343  0.3904
-      model, own + absorption       5.248   6.716  0.4910
+      allocation baseline           6.331   8.416  0.2014
+      model, own form only          5.532   7.177  0.4188
+      model, own + absorption       5.145   6.603  0.5090
 
     usage, players who played
       season mean                   0.052   0.072  0.2898
@@ -51,7 +51,7 @@ Measured on 2024-25 and 2025-26, each trained only on earlier seasons:
       model, own form only          0.051   0.070  0.3260
       model, own + absorption       0.050   0.069  0.3421
 
-Absorption is worth 0.044 of R2 on minutes overall and 0.101 where a quarter or
+Absorption is worth 0.036 of R2 on minutes overall and 0.090 where a quarter or
 more of the team's minutes are in doubt. The gain concentrating in exactly the
 situations the features describe is the evidence that they capture the mechanism
 rather than merely adding capacity.
