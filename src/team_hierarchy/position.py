@@ -163,7 +163,7 @@ def assign_positions(state: pl.DataFrame) -> pl.DataFrame:
     its forwards the bigger are the power forwards. Centres need no split. The
     convention is relative to teammates -- a team's most pass-oriented guards are
     its point guards whatever their absolute assist rate -- and `position_depth`
-    then ranks players inside a position by trailing minutes.
+    then ranks players inside a position by the start-aware depth score.
 
     Nothing in the data labels these five positions, so this is a documented
     reading of the roster, not a fact recovered from the source. Its soundness
@@ -210,7 +210,7 @@ def assign_positions(state: pl.DataFrame) -> pl.DataFrame:
     ).drop("_key_rank", "_slot_n")
 
     return out.with_columns(
-        position_depth=pl.col("ewm_min_8")
+        position_depth=pl.col("depth_score")
         .fill_null(0.0)
         .rank("ordinal", descending=True)
         .over(group + ["position"])

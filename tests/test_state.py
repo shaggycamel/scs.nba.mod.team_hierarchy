@@ -239,6 +239,30 @@ def test_depth_rank_is_dense_within_each_team_game(state: pl.DataFrame):
     assert (per_game["distinct"] == per_game["n"]).all()
 
 
+def test_depth_rank_promotes_actual_starters(state: pl.DataFrame):
+    """Recent starts must move a player up the chart before the EWM catches up."""
+    sample = state.filter((pl.col("season") == "2024-25") & pl.col("played"))
+    sample = sample.with_columns(
+        old_rank=pl.col("ewm_min_8")
+        .fill_null(0.0)
+        .rank("ordinal", descending=True)
+        .over(["game_id", "team_id"]),
+        new_rank=pl.col("depth_score")
+        .fill_null(0.0)
+        .rank("ordinal", descending=True)
+        .over(["game_id", "team_id"]),
+        starter=pl.col("start_position").is_in(["G", "F", "C"]),
+    )
+    games = sample.group_by(["game_id", "team_id"]).agg(
+        pl.col("starter").sum().alias("n_starters")
+    )
+    valid = games.filter(pl.col("n_starters") == 5).select("game_id", "team_id")
+    sample = sample.join(valid, on=["game_id", "team_id"], how="inner")
+    old = float(sample.filter(pl.col("old_rank") <= 5)["starter"].mean())
+    new = float(sample.filter(pl.col("new_rank") <= 5)["starter"].mean())
+    assert new > old + 0.03, f"starter share in top five barely moved: {old:.3f} -> {new:.3f}"
+
+
 def test_candidate_roster_puts_each_player_on_one_team(panel: pl.DataFrame):
     """A traded player must not get a virtual row for both teams.
 

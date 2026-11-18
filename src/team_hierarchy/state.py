@@ -31,6 +31,10 @@ from .data import ROW_KEY, STATUS_COACH, canonical_sort  # noqa: F401
 # Half-life used to rank a team's players into a depth chart.
 DEPTH_ANCHOR_HL = 8
 
+# Minutes of credit a full-time starter gets in the depth score. The trailing
+# EWM alone lags a promotion for weeks; a five-game start rate moves at once.
+DEPTH_START_WEIGHT = 10.0
+
 PRESENCE_PENDING = "PENDING"
 
 
@@ -157,12 +161,17 @@ def add_pre_game_state(
         _idx=pl.int_range(pl.len(), dtype=pl.Int32).over("player_id")
     ).with_columns(feats)
 
-    # Depth rank within the team for this game, from trailing minutes. A player
-    # with no history ranks last rather than null.
+    # Depth rank within the team for this game. A player with no history ranks
+    # last rather than null. Recent starts get explicit credit: trailing
+    # minutes alone keep a promoted bench player below the man he replaced for
+    # weeks, which is exactly when the depth chart matters.
     anchor = f"ewm_min_{DEPTH_ANCHOR_HL}"
     panel = panel.with_columns(
-        depth_rank=pl.col(anchor)
-        .fill_null(0.0)
+        depth_score=pl.col(anchor).fill_null(0.0)
+        + DEPTH_START_WEIGHT * pl.col("start_rate_5").fill_null(0.0)
+    )
+    panel = panel.with_columns(
+        depth_rank=pl.col("depth_score")
         .rank("ordinal", descending=True)
         .over(["game_id", "team_id"])
         .cast(pl.Int32),
