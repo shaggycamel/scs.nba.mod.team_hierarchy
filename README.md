@@ -327,6 +327,9 @@ questions directly:
 - `expected_dominant` / `actual_dominant` — the dominant style in each mix.
 - `top_1_*` … `top_3_*` — the player hierarchy inside that archetype, scored by
   `start_rate_5 * responsibility`.
+- `archetype_description` — joined from the current model's lookup. Historical
+  walk-forward rows are null until their seasonal profiles are added to the
+  lookup.
 
 The history is built from the walk-forward artifact; the current season reads
 `mod.player_archetype_vw`. Build one season at a time:
