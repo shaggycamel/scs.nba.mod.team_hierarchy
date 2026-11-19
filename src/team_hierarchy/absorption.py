@@ -87,6 +87,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from .similarity import STYLE_FEATURE, attach_style_similarity
 from .state import canonical_sort
 
 TEAM_KEYS = ("game_id", "team_id")
@@ -128,16 +129,31 @@ ABSORPTION_FEATURES = (
     "team_size",
 )
 
+# The style-aware variant, used by the ablation and promoted to
+# ABSORPTION_FEATURES only if it beats this baseline on minutes.
+ABSORPTION_FEATURES_WITH_STYLE = (*ABSORPTION_FEATURES, STYLE_FEATURE)
+
 POSITION_CODES = {"PG": 0, "SG": 1, "SF": 2, "PF": 3, "C": 4}
 
 
-def add_absorption_features(scored: pl.DataFrame) -> pl.DataFrame:
+def add_absorption_features(
+    scored: pl.DataFrame,
+    assignments: pl.DataFrame | None = None,
+    similarity_metric: str = "bhattacharyya",
+) -> pl.DataFrame:
     """Team-level absence features, built from expected rather than actual absence.
 
     Requires `p_play` from layer 3 and `position` from layer 2 on every roster
     row of the team, absent players included -- which is the whole reason the
     panel exists.
+
+    Pass `assignments` (the archetype responsibilities) to attach
+    `expected_vacated_minutes_similar_style`. The column is only attached when
+    the frame is supplied, so the production bundle can keep the baseline
+    feature list until the ablation decides.
     """
+    if assignments is not None:
+        scored = attach_style_similarity(scored, assignments, similarity_metric)
     absent_weight = 1.0 - pl.col("p_play")
     # Minutes the player gets WHEN HE PLAYS, not blended across absences.
     # `ewm_min_8` already counts an absence as zero minutes, so multiplying it

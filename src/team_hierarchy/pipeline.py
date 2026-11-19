@@ -90,6 +90,8 @@ def add_out_of_fold_play_probability(data: pl.DataFrame) -> pl.DataFrame:
 def layer4_frame(
     fit_positions_before: str = "2024-25",
     season_types: tuple[str, ...] = SEASON_TYPES,
+    assignments: pl.DataFrame | None = None,
+    similarity_metric: str = "bhattacharyya",
 ) -> pl.DataFrame:
     """Everything layer 4 needs: positions, out-of-fold `p_play`, absorption.
 
@@ -97,9 +99,17 @@ def layer4_frame(
     report-informed availability model. Extending further back would mean a
     state-only availability model, which is the obvious lever if sample size
     turns out to bind.
+
+    `assignments` attaches the style similarity feature; it is optional so the
+    production bundle can keep the baseline feature list until the ablation
+    decides.
     """
     data = add_positions(base_frame(season_types), fit_positions_before)
-    return add_absorption_features(add_out_of_fold_play_probability(injury_era(data)))
+    return add_absorption_features(
+        add_out_of_fold_play_probability(injury_era(data)),
+        assignments=assignments,
+        similarity_metric=similarity_metric,
+    )
 
 
 def fit_bundle(

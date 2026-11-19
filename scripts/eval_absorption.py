@@ -6,14 +6,22 @@ baseline is the one that really matters: a mechanical allocation that shares the
 team's minute budget in proportion to expected minutes, with nothing learned.
 It already captures absorption by construction, so a learned model has to beat
 it to be worth its machinery.
+
+The style-aware variant adds `expected_vacated_minutes_similar_style` on top of
+the same absorption block. It is only worth keeping if it improves minutes, not
+just usage.
 """
 
 from __future__ import annotations
+
+import argparse
+from pathlib import Path
 
 import polars as pl
 
 from team_hierarchy.absorption import (
     ABSORPTION_FEATURES,
+    ABSORPTION_FEATURES_WITH_STYLE,
     MINUTES_TARGET,
     OWN_FEATURES,
     USAGE_TARGET,
@@ -25,6 +33,22 @@ from team_hierarchy.absorption import (
 from team_hierarchy.pipeline import layer4_frame
 
 TEST_SEASONS = ["2024-25", "2025-26"]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--assignments",
+        type=Path,
+        required=True,
+        help="walk-forward archetype assignments (Parquet)",
+    )
+    parser.add_argument(
+        "--metric",
+        choices=["bhattacharyya", "cosine"],
+        default="bhattacharyya",
+    )
+    return parser.parse_args()
 
 
 def add_season_to_date_means(df: pl.DataFrame) -> pl.DataFrame:
@@ -74,14 +98,31 @@ def report(title: str, rows: list[dict]) -> pl.DataFrame:
     return res
 
 
+def starter_recall(frame: pl.DataFrame, column: str, top_n: int = 5) -> float:
+    """Share of actual starters inside the team's top-N predicted minutes."""
+    ranked = frame.with_columns(
+        _rank=pl.col(column).rank("ordinal", descending=True).over(["game_id", "team_id"])
+    )
+    starters = ranked.filter(pl.col("started"))
+    if not starters.height:
+        return float("nan")
+    return float(starters.filter(pl.col("_rank") <= top_n).height / starters.height)
+
+
 def main() -> None:
-    data = add_season_to_date_means(layer4_frame())
-    combined = OWN_FEATURES + ABSORPTION_FEATURES
+    args = parse_args()
+    assignments = pl.read_parquet(args.assignments)
+    data = add_season_to_date_means(
+        layer4_frame(assignments=assignments, similarity_metric=args.metric)
+    )
+    base_features = OWN_FEATURES + ABSORPTION_FEATURES
+    style_features = OWN_FEATURES + ABSORPTION_FEATURES_WITH_STYLE
     print(
-        f"layer 4 frame: {data.height:,} rows, seasons {sorted(data['season'].unique().to_list())}"
+        f"layer 4 frame: {data.height:,} rows, seasons "
+        f"{sorted(data['season'].unique().to_list())}, metric {args.metric}"
     )
 
-    min_rows, usg_rows, slices = [], [], []
+    min_rows, usg_rows, slices, role_rows, recall_rows = [], [], [], [], []
     for season in TEST_SEASONS:
         train = data.filter((pl.col("season") < season) & pl.col("played"))
         test = data.filter((pl.col("season") == season) & pl.col("played"))
@@ -97,9 +138,11 @@ def main() -> None:
         # ---- minutes
         y = test[MINUTES_TARGET].to_numpy()
         m_own = fit_regressor(train, OWN_FEATURES, MINUTES_TARGET)
-        m_all = fit_regressor(train, combined, MINUTES_TARGET)
+        m_base = fit_regressor(train, base_features, MINUTES_TARGET)
+        m_style = fit_regressor(train, style_features, MINUTES_TARGET)
         scored = predict(m_own, test, OWN_FEATURES, "p_min_own")
-        scored = predict(m_all, scored, combined, "p_min_all")
+        scored = predict(m_base, scored, base_features, "p_min_base")
+        scored = predict(m_style, scored, style_features, "p_min_style")
         preds = {
             "season_mean": scored["season_mean_min"]
             .fill_null(train[MINUTES_TARGET].mean())
@@ -109,7 +152,8 @@ def main() -> None:
             .to_numpy(),
             "allocation_baseline": scored["alloc_minutes"].to_numpy(),
             "model_own_only": scored["p_min_own"].to_numpy(),
-            "model_own+absorption": scored["p_min_all"].to_numpy(),
+            "model_absorption": scored["p_min_base"].to_numpy(),
+            "model_absorption+style": scored["p_min_style"].to_numpy(),
         }
         for name, p in preds.items():
             min_rows.append({"season": season, "model": name, **regression_score(p, y)})
@@ -120,32 +164,62 @@ def main() -> None:
         yh = hi[MINUTES_TARGET].to_numpy()
         for name, col in [
             ("allocation_baseline", "alloc_minutes"),
-            ("model_own_only", "p_min_own"),
-            ("model_own+absorption", "p_min_all"),
+            ("model_absorption", "p_min_base"),
+            ("model_absorption+style", "p_min_style"),
         ]:
             slices.append(
                 {"season": season, "model": name, **regression_score(hi[col].to_numpy(), yh)}
             )
 
+        # Players whose available role jumps relative to their standing.
+        role = scored.filter(pl.col("rank_improvement") >= 2)
+        yr = role[MINUTES_TARGET].to_numpy()
+        for name, col in [
+            ("model_absorption", "p_min_base"),
+            ("model_absorption+style", "p_min_style"),
+        ]:
+            if role.height:
+                role_rows.append(
+                    {
+                        "season": season,
+                        "model": name,
+                        **regression_score(role[col].to_numpy(), yr),
+                    }
+                )
+
+        recall_rows.append(
+            {
+                "season": season,
+                "model_absorption": starter_recall(scored, "p_min_base"),
+                "model_absorption+style": starter_recall(scored, "p_min_style"),
+            }
+        )
+
         # ---- usage
         yu = test[USAGE_TARGET].to_numpy()
         u_own = fit_regressor(train, OWN_FEATURES, USAGE_TARGET)
-        u_all = fit_regressor(train, combined, USAGE_TARGET)
+        u_base = fit_regressor(train, base_features, USAGE_TARGET)
+        u_style = fit_regressor(train, style_features, USAGE_TARGET)
         su = predict(u_own, test, OWN_FEATURES, "p_usg_own")
-        su = predict(u_all, su, combined, "p_usg_all")
+        su = predict(u_base, su, base_features, "p_usg_base")
+        su = predict(u_style, su, style_features, "p_usg_style")
         upreds = {
             "season_mean": su["season_mean_usg"].fill_null(train[USAGE_TARGET].mean()).to_numpy(),
             "trailing_mean (ewm_usg_pct_8)": su["ewm_usg_pct_8"]
             .fill_null(train[USAGE_TARGET].mean())
             .to_numpy(),
             "model_own_only": su["p_usg_own"].to_numpy(),
-            "model_own+absorption": su["p_usg_all"].to_numpy(),
+            "model_absorption": su["p_usg_base"].to_numpy(),
+            "model_absorption+style": su["p_usg_style"].to_numpy(),
         }
         for name, p in upreds.items():
             usg_rows.append({"season": season, "model": name, **regression_score(p, yu)})
 
     report("MINUTES (players who played)", min_rows)
     report("MINUTES, top quartile of expected vacated minutes", slices)
+    report("MINUTES, role-change subset (rank_improvement >= 2)", role_rows)
+    print("\n=== STARTER RECALL (top 5 predicted minutes) ===")
+    print(pl.DataFrame(recall_rows))
     report("USAGE (players who played)", usg_rows)
 
 

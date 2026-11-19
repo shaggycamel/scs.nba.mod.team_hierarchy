@@ -24,7 +24,7 @@ working. The 2026-27 season is out-of-sample.
 - `scripts/eval_horizon.py` compares the composed curve with state-only at the
   same information set; the sampled 2026-27 check is in the README.
 - `SCHEDULING.md`, `README` production sections.
-- 71 tests, ruff clean.
+- 76 tests, ruff clean.
 
 ## Remaining (beyond the player_archetypes standard)
 
@@ -32,6 +32,9 @@ working. The 2026-27 season is out-of-sample.
 - Monitoring/alert thresholds for row-count and empty-slate anomalies.
 - Cache the panel across the two intraday runs; it still rebuilds the full
   history from the views each time.
+- Style similarity was ablated and rejected (minutes MAE 4.649 versus 4.652;
+  starter recall slightly worse). Do not retest without a better taxonomy or
+  coverage.
 - Seasonal refit reminder and bundle rollback runbook.
 - Run `eval_horizon.py` over the full 2026-27 season at the next refit; the
   current check samples two run dates.
