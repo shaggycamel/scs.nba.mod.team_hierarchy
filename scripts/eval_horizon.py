@@ -13,7 +13,7 @@ The availability file comes from the injury repo:
 
 Then:
 
-    TEAM_HIERARCHY_DATA=data/daily uv run python scripts/eval_horizon.py \
+    uv run --group data python scripts/eval_horizon.py \
         --availability ../injury_duration/artifacts/availability_2026_27.parquet \
         --runs 2026-11-02,2026-11-05,2026-11-08,2026-11-11
 """
@@ -21,12 +21,13 @@ Then:
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
 
-from team_hierarchy.config import DATA_DIR
+from team_hierarchy import source
 from team_hierarchy.persist import load
 from team_hierarchy.pipeline import daily_hierarchy
 
@@ -43,6 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--season", default="2026-27")
+    parser.add_argument("--db-con", default="jetson-read")
     parser.add_argument(
         "--model",
         type=Path,
@@ -52,14 +54,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _slates(season: str) -> tuple[pl.DataFrame, pl.DataFrame]:
-    box = pl.read_parquet(
-        DATA_DIR / "nba/player_box_score.parquet",
-        columns=["game_id", "player_id", "min"],
-    )
-    schedule = pl.read_parquet(
-        DATA_DIR / "nba/league_game_schedule.parquet",
-        columns=["game_id", "game_date", "season", "season_type"],
-    )
+    box = source.read_player_games().select("game_id", "player_id", "min")
+    schedule = source.read_schedule().select("game_id", "game_date", "season", "season_type")
     regular = schedule.filter(
         (pl.col("season") == season) & (pl.col("season_type") == "Regular Season")
     )
@@ -72,6 +68,7 @@ def _brier(col: str) -> pl.Expr:
 
 def main() -> None:
     args = parse_args()
+    os.environ["TEAM_HIERARCHY_DB_CON"] = args.db_con
     bundle = load(args.model)
     availability = pl.read_parquet(args.availability)
     box, schedule = _slates(args.season)
@@ -82,13 +79,9 @@ def main() -> None:
         window = [g for g in slates if run < g <= run + timedelta(days=args.days)]
         av = availability.filter(pl.col("prediction_date") == run)
         for game in window:
-            if schedule.filter(pl.col("game_date") == game).join(
-                box, on="game_id"
-            ).is_empty():
+            if schedule.filter(pl.col("game_date") == game).join(box, on="game_id").is_empty():
                 continue
-            base = daily_hierarchy(
-                game, bundle=bundle, include_report=False, panel_through=run
-            )
+            base = daily_hierarchy(game, bundle=bundle, include_report=False, panel_through=run)
             new = daily_hierarchy(
                 game,
                 bundle=bundle,
@@ -118,9 +111,9 @@ def main() -> None:
     if not rows:
         raise SystemExit("no matched games; check the run dates and snapshot")
 
-    actual = box.select(
-        *KEY, pl.col("min").fill_null(0.0).alias("minutes")
-    ).with_columns((pl.col("minutes") > 0).alias("played"))
+    actual = box.select(*KEY, pl.col("min").fill_null(0.0).alias("minutes")).with_columns(
+        (pl.col("minutes") > 0).alias("played")
+    )
     data = (
         pl.concat(rows)
         .join(actual, on=KEY, how="left")
@@ -140,21 +133,19 @@ def main() -> None:
             df.select(
                 _brier("p_play").round(4).alias("brier_state_only"),
                 _brier("p_play_new").round(4).alias("brier_composed"),
-                (
-                    (pl.col("expected_minutes") - pl.col("minutes")).abs().mean()
-                ).round(3).alias("minutes_mae_before"),
-                (
-                    (pl.col("expected_minutes_new") - pl.col("minutes")).abs().mean()
-                ).round(3).alias("minutes_mae_after"),
+                ((pl.col("expected_minutes") - pl.col("minutes")).abs().mean())
+                .round(3)
+                .alias("minutes_mae_before"),
+                ((pl.col("expected_minutes_new") - pl.col("minutes")).abs().mean())
+                .round(3)
+                .alias("minutes_mae_after"),
             )
         )
 
     show(data, "all rows")
     for lo, hi in [(1, 2), (3, 5), (6, 7)]:
         show(
-            data.filter(
-                (pl.col("days_ahead") >= lo) & (pl.col("days_ahead") <= hi)
-            ),
+            data.filter((pl.col("days_ahead") >= lo) & (pl.col("days_ahead") <= hi)),
             f"{lo}-{hi} days ahead",
         )
     show(changed, "rows the injury curve changed")

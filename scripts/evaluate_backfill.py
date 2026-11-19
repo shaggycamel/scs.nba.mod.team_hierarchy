@@ -4,31 +4,26 @@ Prints availability, minutes and usage accuracy for completed games only.
 No files are written.
 
 Usage:
-    TEAM_HIERARCHY_DATA=data/daily uv run --group data python \
-        scripts/evaluate_backfill.py --season 2026-27
+    uv run --group data python scripts/evaluate_backfill.py --season 2026-27
 """
 
 from __future__ import annotations
 
 import argparse
-import os
+import re
 from itertools import pairwise
-from pathlib import Path
 
 import numpy as np
 import polars as pl
 import scs_hub
+
+SEASON_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--season", default="2026-27")
     parser.add_argument("--db-con", default="jetson-read")
-    parser.add_argument(
-        "--data",
-        type=Path,
-        default=Path(os.environ.get("TEAM_HIERARCHY_DATA", "data/daily")),
-    )
     return parser.parse_args()
 
 
@@ -45,17 +40,16 @@ def ece(p: np.ndarray, y: np.ndarray, bins: int = 10) -> float:
 
 def main() -> None:
     args = parse_args()
-    data = Path(args.data).expanduser().resolve()
-    box = pl.read_parquet(
-        data / "nba" / "player_box_score.parquet",
-        columns=["game_id", "team_id", "player_id", "min", "usg_pct"],
-    )
-    schedule = pl.read_parquet(
-        data / "nba" / "league_game_schedule.parquet",
-        columns=["game_id", "season"],
-    )
-    season_games = schedule.filter(pl.col("season") == args.season)["game_id"].unique().to_list()
-    box = box.filter(pl.col("game_id").is_in(season_games)).with_columns(
+    if not SEASON_PATTERN.match(args.season):
+        raise SystemExit(f"invalid season: {args.season!r}")
+    hub = scs_hub.SportsHub(db_con=args.db_con)
+    box = hub.db.read(
+        f"""
+        SELECT game_id, team_id, player_id, min, usg_pct
+        FROM nba.player_box_score_vw
+        WHERE season = '{args.season}'
+        """
+    ).with_columns(
         pl.col("min").cast(pl.Float64),
         pl.col("usg_pct").cast(pl.Float64),
         (pl.col("min").fill_null(0) > 0).alias("played"),
@@ -63,7 +57,6 @@ def main() -> None:
     )
     completed = box["game_id"].unique().to_list()
 
-    hub = scs_hub.SportsHub(db_con=args.db_con)
     pred = hub.db.read(
         f"""
         SELECT game_date, game_id, team_id, player_id, p_play,

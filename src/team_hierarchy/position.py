@@ -26,13 +26,12 @@ predicted.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
 
-from .config import DATA_DIR
+from . import source
 from .state import canonical_sort
 
 SLOTS = ("G", "F", "C")
@@ -68,17 +67,16 @@ PROFILE_FEATURES = (
 HISTORY_FEATURES = tuple(f"prior_start_share_{s}" for s in SLOTS)
 
 
-def load_player_attributes(data_dir: Path = DATA_DIR) -> pl.DataFrame:
+def load_player_attributes() -> pl.DataFrame:
     """Static per-player attributes. Height is constant, so season is ignored.
 
-    `player_info` is a directory of 5,161 players snapshotted in two seasons,
-    not a per-season table; joining on player_id covers all history at 99.6% of
-    played minutes. A handful of players are listed at two heights, so the
-    median is taken.
+    `player_info` is a directory of players across seasons, not a per-season
+    table; joining on player_id covers all history at 99.6% of played minutes.
+    A handful of players are listed at two heights, so the median is taken.
     """
-    info = pl.read_parquet(data_dir / "nba" / "player_info.parquet")
+    info = source.read_player_info()
     return (
-        info.select("player_id", "height_cm", "weight_kg")
+        info.select(pl.col("player_id").cast(pl.Int64), "height_cm", "weight_kg")
         .drop_nulls("height_cm")
         .group_by("player_id")
         .agg(pl.col("height_cm").median(), pl.col("weight_kg").median())
@@ -111,11 +109,9 @@ def add_start_history(panel: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def prepare(state: pl.DataFrame, data_dir: Path = DATA_DIR) -> pl.DataFrame:
+def prepare(state: pl.DataFrame) -> pl.DataFrame:
     """Attach height and prior-start history to the layer 1 state."""
-    return add_start_history(state).join(
-        load_player_attributes(data_dir), on="player_id", how="left"
-    )
+    return add_start_history(state).join(load_player_attributes(), on="player_id", how="left")
 
 
 def _matrix(df: pl.DataFrame, features: tuple[str, ...]) -> np.ndarray:

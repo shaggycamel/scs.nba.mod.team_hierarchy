@@ -4,14 +4,12 @@ The bundle is trained only on seasons up to and including `--through-season`;
 2026-27 is deliberately excluded and scored out-of-sample.
 
 Usage:
-    TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py \
-        --through-season 2025-26
+    uv run --group data python scripts/fit_model.py --through-season 2025-26
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 from pathlib import Path
 
@@ -22,7 +20,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--through-season", default="2025-26")
     parser.add_argument("--out", type=Path, default=Path("artifacts/team_hierarchy"))
-    parser.add_argument("--data", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -35,8 +32,6 @@ def git_commit() -> str | None:
 
 def main() -> None:
     args = parse_args()
-    if args.data is not None:
-        os.environ["TEAM_HIERARCHY_DATA"] = str(args.data.resolve())
 
     from team_hierarchy.persist import save
     from team_hierarchy.pipeline import fit_bundle

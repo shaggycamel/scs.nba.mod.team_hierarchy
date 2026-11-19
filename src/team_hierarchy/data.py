@@ -8,11 +8,10 @@ availability and absorption layers need.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import polars as pl
 
-from .config import DATA_DIR, SEASON_TYPES
+from . import source
+from .config import SEASON_TYPES
 
 # Absence reasons, normalised from the free-text `comment` field. Only the
 # coach/injury split is load-bearing for the hierarchy: a coach's decision is a
@@ -86,15 +85,15 @@ def _per36(stat: str) -> pl.Expr:
     return pl.when(pl.col("min") > 0).then(pl.col(stat) / pl.col("min") * 36).otherwise(None)
 
 
-def load_schedule(data_dir: Path = DATA_DIR) -> pl.DataFrame:
+def load_schedule() -> pl.DataFrame:
     """One row per game: date, season and season type.
 
-    The source table holds one row per *team* per game; the three columns we
-    keep are identical across a game's two rows, which is asserted here rather
-    than assumed.
+    The view holds one row per *team* per game; the three columns we keep are
+    identical across a game's two rows, which is asserted here rather than
+    assumed.
     """
-    sched = pl.read_parquet(data_dir / "nba" / "league_game_schedule.parquet").select(
-        "game_id", "game_date", "season", "season_type"
+    sched = source.read_schedule().select(
+        pl.col("game_id").cast(pl.Int64), "game_date", "season", "season_type"
     )
     per_game = sched.group_by("game_id").agg(
         pl.col("game_date").n_unique().alias("n_date"),
@@ -112,34 +111,24 @@ def load_schedule(data_dir: Path = DATA_DIR) -> pl.DataFrame:
     return sched.unique(subset=["game_id"], keep="first")
 
 
-def load_team_roster(
-    data_dir: Path = DATA_DIR,
-    season: str | None = None,
-) -> pl.DataFrame:
-    """The dated season roster, used to correct serving membership.
-
-    Prefers `nba.team_roster_vw` (conformed names, key-date fallbacks) and
-    falls back to the base table for older snapshots.
-    """
-    view = data_dir / "nba" / "team_roster_vw.parquet"
-    path = view if view.exists() else data_dir / "nba" / "team_roster.parquet"
-    roster = pl.read_parquet(path)
-    if season is not None:
-        roster = roster.filter(pl.col("season") == season)
-    name_col = "player_name" if "player_name" in roster.columns else "player"
-    return roster.select(
-        "season",
-        "team_id",
-        "team_slug",
-        pl.col("player_id").cast(pl.Int64),
-        pl.col(name_col).alias("player_name"),
-        "entry_date",
-        "exit_date",
-    ).with_columns(pl.col("team_slug").alias("team_abbreviation"))
+def load_team_roster(season: str | None = None) -> pl.DataFrame:
+    """The dated season roster, used to correct serving membership."""
+    return (
+        source.read_team_roster(season)
+        .select(
+            "season",
+            pl.col("team_id").cast(pl.Int64),
+            "team_slug",
+            pl.col("player_id").cast(pl.Int64),
+            "player_name",
+            "entry_date",
+            "exit_date",
+        )
+        .with_columns(pl.col("team_slug").alias("team_abbreviation"))
+    )
 
 
 def load_fixtures(
-    data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
 ) -> pl.DataFrame:
     """One row per team per scheduled game: who they play, where, and when.
@@ -149,15 +138,15 @@ def load_fixtures(
     makes this the only source that can stop a daily run inventing a game for a
     team that is not playing.
     """
-    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select("team_id", "team_slug")
-    sched = pl.read_parquet(data_dir / "nba" / "league_game_schedule.parquet")
+    teams = source.read_teams().select(pl.col("team_id").cast(pl.Int64), "team_slug")
+    sched = source.read_schedule()
     if season_types:
         sched = sched.filter(pl.col("season_type").is_in(season_types))
     return (
         sched.join(teams, left_on="team", right_on="team_slug", how="inner")
         .select(
             "team_id",
-            "game_id",
+            pl.col("game_id").cast(pl.Int64),
             "game_date",
             "season",
             pl.col("opponent"),
@@ -169,7 +158,6 @@ def load_fixtures(
 
 
 def load_player_games(
-    data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
 ) -> pl.DataFrame:
     """The player-game spine, sorted for windowed feature computation.
@@ -177,42 +165,21 @@ def load_player_games(
     Sorted by (player_id, game_date, game_id) so that `.over("player_id")`
     windows see each player's games in chronological order.
     """
-    box = pl.read_parquet(
-        data_dir / "nba" / "player_box_score.parquet",
-        columns=[
-            "game_id",
-            "team_id",
-            "team_abbreviation",
-            "player_id",
-            "player_name",
-            "start_position",
-            "comment",
-            "min",
-            "usg_pct",
-            "ast_pct",
-            "reb_pct",
-            "oreb_pct",
-            "dreb_pct",
-            "ts_pct",
-            "fga",
-            "fg3_a",
-            "fta",
-            "ast",
-            "reb",
-            "blk",
-            "stl",
-            "tov",
-            "poss",
-        ],
-    )
-    sched = load_schedule(data_dir)
-    pg = box.join(sched, on="game_id", how="inner")
+    pg = source.read_player_games()
     if season_types:
         pg = pg.filter(pl.col("season_type").is_in(season_types))
+    # The public view is roster-complete: it emits a row for every roster player
+    # on every team game. The hierarchy's own panel reconstructs the missing
+    # rows, so it starts from the box-score spine (`in_box_score`) and keeps the
+    # view's extra rows out of the training frame.
+    pg = pg.filter(pl.col("in_box_score"))
 
     pg = pg.with_columns(
+        pl.col("game_id").cast(pl.Int64),
+        pl.col("team_id").cast(pl.Int64),
+        pl.col("player_id").cast(pl.Int64),
         played=pl.col("min").fill_null(0) > 0,
-        started=pl.col("start_position").is_in(["G", "F", "C"]),
+        started=pl.col("start_position").is_in(["G", "F", "C"]).fill_null(False),
     ).with_columns(
         status=_absence_status(),
         fg3_rate=_safe_div("fg3_a", "fga"),

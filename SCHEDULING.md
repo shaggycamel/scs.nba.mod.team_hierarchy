@@ -57,8 +57,7 @@ The production models are frozen at the end of 2025-26 and copied to the
 Jetson; the daily job never refits on 2026-27.
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py \
-  --through-season 2025-26
+uv run --group data python scripts/fit_model.py --through-season 2025-26
 scp artifacts/team_hierarchy/model.pkl artifacts/team_hierarchy/model.json \
   jetson:/home/oli/shaggy_camel_sports/nba/mod/team_hierarchy/artifacts/team_hierarchy/
 ```
@@ -70,7 +69,7 @@ Refit after the 2026-27 season ends, then scp again.
 Completed 2026-27 slates plus today:
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/backfill.py \
+uv run --group data python scripts/backfill.py \
   --season 2026-27 --end 2026-11-07
 ```
 

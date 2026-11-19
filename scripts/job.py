@@ -53,7 +53,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cadence", default=os.environ.get("SCS_CADENCE", "intraday"))
     parser.add_argument("--db-con", default="jetson-write")
     parser.add_argument("--source", default=os.environ.get("UPDATE_LOG_SOURCE", SOURCE))
-    parser.add_argument("--skip-fetch", action="store_true")
     parser.add_argument(
         "--skip-freshness",
         action="store_true",
@@ -115,9 +114,7 @@ def log_run(
     )
 
 
-def horizon_dates(
-    schedule: pl.DataFrame, season: str, start: date, days: int
-) -> list[date]:
+def horizon_dates(schedule: pl.DataFrame, season: str, start: date, days: int) -> list[date]:
     """Slates in the window whose results have not been ingested.
 
     A date freezes once any result arrives, so a partially played slate is
@@ -140,21 +137,17 @@ def horizon_dates(
     )
 
 
-def require_fresh(
-    hub, task: str, max_age_minutes: int, label: str
-) -> None:
+def require_fresh(hub, task: str, max_age_minutes: int, label: str) -> None:
     """Fail when an upstream task has not written recently."""
     last = hub.db.read(
-        "SELECT max(task_time) AS t FROM util.update_log "
-        f"WHERE task = '{task}' AND success"
+        f"SELECT max(task_time) AS t FROM util.update_log WHERE task = '{task}' AND success"
     ).item()
     if last is None:
         raise RuntimeError(f"no successful {label} update in util.update_log")
     age = datetime.now(UTC) - last
     if age > timedelta(minutes=max_age_minutes):
         raise RuntimeError(
-            f"{label} data is {age} old; expected an update within "
-            f"{max_age_minutes} minutes"
+            f"{label} data is {age} old; expected an update within {max_age_minutes} minutes"
         )
 
 
@@ -181,13 +174,10 @@ def load_availability(hub, max_age_minutes: int = 180) -> pl.DataFrame:
         ) from exc
     if frame.is_empty():
         raise RuntimeError(
-            "mod.injury_game_availability_base has no rows; run "
-            "scs.nba.mod.injury_duration first"
+            "mod.injury_game_availability_base has no rows; run scs.nba.mod.injury_duration first"
         )
     newest = frame["generated_at"].max()
-    if newest is not None and datetime.now(UTC) - newest > timedelta(
-        minutes=max_age_minutes
-    ):
+    if newest is not None and datetime.now(UTC) - newest > timedelta(minutes=max_age_minutes):
         raise RuntimeError(
             "mod.injury_game_availability_base is "
             f"{datetime.now(UTC) - newest} old; the injury job has not run"
@@ -201,30 +191,18 @@ def main(argv: list[str] | None = None) -> int:
     result_file = os.environ.get("SCS_RESULT_FILE")
     today = datetime.now(UTC).date()
     season = args.season or current_season(args.date or today)
-    data_dir = ROOT / "data/daily"
 
     error = None
     rows = None
     try:
-        if not args.skip_fetch:
-            run(
-                "fetch",
-                [
-                    "scripts/00_fetch.py",
-                    "--through",
-                    season,
-                    "--out",
-                    str(data_dir),
-                    "--db-con",
-                    args.db_con,
-                ],
-            )
-
-        os.environ["TEAM_HIERARCHY_DATA"] = str(data_dir)
+        # The loaders read the public views; this selects the credentials
+        # section before the first connection is opened.
+        os.environ["TEAM_HIERARCHY_DB_CON"] = args.db_con
+        from team_hierarchy import source
         from team_hierarchy.persist import load
         from team_hierarchy.pipeline import daily_hierarchy
 
-        schedule = pl.read_parquet(data_dir / "nba/league_game_schedule.parquet")
+        schedule = source.read_schedule()
         dates = (
             [args.date]
             if args.date is not None
@@ -249,8 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             frames = [
                 frame
                 for frame in (
-                    daily_hierarchy(day, bundle=bundle, availability=availability)
-                    for day in dates
+                    daily_hierarchy(day, bundle=bundle, availability=availability) for day in dates
                 )
                 if not frame.is_empty()
             ]

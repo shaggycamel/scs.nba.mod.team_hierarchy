@@ -24,13 +24,14 @@ working. The 2026-27 season is out-of-sample.
 - `scripts/eval_horizon.py` compares the composed curve with state-only at the
   same information set; the sampled 2026-27 check is in the README.
 - `SCHEDULING.md`, `README` production sections.
-- 60 tests, ruff clean.
+- 71 tests, ruff clean.
 
 ## Remaining (beyond the player_archetypes standard)
 
 - CI with a synthetic fast suite; the real-data tests remain local.
 - Monitoring/alert thresholds for row-count and empty-slate anomalies.
-- Current-season/incremental fetch instead of the full 595k-row refresh.
+- Cache the panel across the two intraday runs; it still rebuilds the full
+  history from the views each time.
 - Seasonal refit reminder and bundle rollback runbook.
 - Run `eval_horizon.py` over the full 2026-27 season at the next refit; the
   current check samples two run dates.
@@ -40,8 +41,7 @@ working. The 2026-27 season is out-of-sample.
 After the 2026-27 season ends:
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py \
-  --through-season 2026-27
+uv run --group data python scripts/fit_model.py --through-season 2026-27
 scp artifacts/team_hierarchy/model.pkl artifacts/team_hierarchy/model.json \
   jetson:/home/oli/shaggy_camel_sports/nba/mod/team_hierarchy/artifacts/team_hierarchy/
 ```

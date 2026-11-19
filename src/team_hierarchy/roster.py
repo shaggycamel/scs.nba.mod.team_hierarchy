@@ -25,11 +25,10 @@ What is and is not recovered:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import polars as pl
 
-from .config import DATA_DIR, SEASON_TYPES
+from . import source
+from .config import SEASON_TYPES
 from .data import canonical_sort, load_player_games
 
 # Presence on a team game, superseding the box score `status`.
@@ -50,7 +49,7 @@ _STATUS_SEVERITY = {
 _ABSENT_STATUSES = ("Out", "Doubtful")
 
 
-def _name_to_nba_id(data_dir: Path) -> pl.DataFrame:
+def _name_to_nba_id() -> pl.DataFrame:
     """Exact-name lookup from the `util` crosswalk, for rows missing an id.
 
     18.6% of injury report rows carry no `nba_id`. The crosswalk recovers most
@@ -58,7 +57,7 @@ def _name_to_nba_id(data_dir: Path) -> pl.DataFrame:
     than guessed: a wrong id invents an absence for the wrong player, which is
     worse than leaving the row out.
     """
-    xw = pl.read_parquet(data_dir / "util" / "player_id_map_vw.parquet")
+    xw = source.read_player_map()
     pairs = (
         pl.concat(
             [
@@ -69,6 +68,7 @@ def _name_to_nba_id(data_dir: Path) -> pl.DataFrame:
         )
         .drop_nulls()
         .unique()
+        .with_columns(pl.col("nba_id").cast(pl.Int64))
     )
     unambiguous = (
         pairs.group_by("name")
@@ -79,20 +79,22 @@ def _name_to_nba_id(data_dir: Path) -> pl.DataFrame:
     return pairs.join(unambiguous, on="name", how="inner").unique(subset=["name"])
 
 
-def load_injury_reports(
-    data_dir: Path = DATA_DIR, date_to_season: pl.DataFrame | None = None
-) -> pl.DataFrame:
+def load_injury_reports(date_to_season: pl.DataFrame | None = None) -> pl.DataFrame:
     """One row per (game_date, team, player) with a single resolved status."""
-    teams = pl.read_parquet(data_dir / "nba" / "teams.parquet").select("team_id", "team_slug")
-    raw = pl.read_parquet(data_dir / "nba" / "injuries.parquet")
-    names = _name_to_nba_id(data_dir)
+    raw = source.read_injuries().with_columns(pl.col("nba_id").cast(pl.Int64))
+    names = _name_to_nba_id()
     inj = (
         raw.join(names, left_on="player_name", right_on="name", how="left", suffix="_xw")
         .with_columns(nba_id=pl.col("nba_id").fill_null(pl.col("nba_id_xw")))
         .filter(pl.col("nba_id").is_not_null())
         .rename({"nba_id": "player_id"})
-        .join(teams, on="team_slug", how="inner")
-        .select("game_date", "team_id", "player_id", "player_name", "status")
+        .select(
+            "game_date",
+            pl.col("team_id").cast(pl.Int64),
+            pl.col("player_id").cast(pl.Int64),
+            "player_name",
+            "status",
+        )
     )
     # Duplicate rows are exact repeats, not successive revisions: of 62,840
     # (date, player, team) groups only 478 repeat, and in every one the status,
@@ -146,16 +148,15 @@ def membership_intervals(pg: pl.DataFrame, injuries: pl.DataFrame | None = None)
 
 
 def build_panel(
-    data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
     pg: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """The roster-complete panel, sorted for windowed feature computation."""
     if pg is None:
-        pg = load_player_games(data_dir, season_types)
+        pg = load_player_games(season_types)
 
     date_to_season = pg.select("game_date", "season").unique()
-    injuries = load_injury_reports(data_dir, date_to_season)
+    injuries = load_injury_reports(date_to_season)
     # Keep only injury rows for a team the player has box score evidence with,
     # or the report's own team: a stale report naming a former team would
     # otherwise invent membership.
@@ -203,11 +204,16 @@ def build_panel(
     # the player was absent for. Backfill them per player and per team.
     # Some players only ever appear in the injury report -- never in a box
     # score -- so it is a second source of names.
+    crosswalk_names = source.read_player_map().select(
+        pl.col("nba_id").cast(pl.Int64).alias("player_id"),
+        pl.coalesce("nba_name", "conformed_name").alias("player_name"),
+    )
     names = (
         pl.concat(
             [
                 pg.select("player_id", "player_name"),
                 injuries.select("player_id", "player_name"),
+                crosswalk_names,
             ],
             how="vertical",
         )
@@ -234,6 +240,10 @@ def build_panel(
     # Same order as every other layer, so `absence_run_full` below and
     # `absent_streak_prior` in state.py cannot disagree about which row of an
     # absence comes first.
+    # A reconstructed row with no name cannot be identified downstream and
+    # carries no model evidence; it comes from a pre-crosswalk player. Box-score
+    # rows are kept even when the name is missing, so no real row is lost.
+    panel = panel.filter(pl.col("with_team") | pl.col("player_name").is_not_null())
     panel = canonical_sort(panel)
     # Length of the whole consecutive absence run each row belongs to. This
     # spans games AFTER the row as well as before, so it is a diagnostic for

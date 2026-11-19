@@ -14,7 +14,6 @@ probability feeding layer 4's features is as noisy in training as in service.
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 import polars as pl
 
@@ -35,7 +34,7 @@ from .availability import (
     fit_calibrated_play_model,
     injury_era,
 )
-from .config import DATA_DIR, SEASON_TYPES, SERVING_GAME_ID
+from .config import SEASON_TYPES, SERVING_GAME_ID
 from .data import load_fixtures, load_team_roster
 from .persist import HierarchyBundle, build_metadata
 from .position import (
@@ -53,12 +52,10 @@ from .state import add_pre_game_state, append_serving_rows, serving_rows
 PLAY_FEATURES = STATE_FEATURES + REPORT_FEATURES
 
 
-def base_frame(
-    data_dir: Path = DATA_DIR, season_types: tuple[str, ...] = SEASON_TYPES
-) -> pl.DataFrame:
+def base_frame(season_types: tuple[str, ...] = SEASON_TYPES) -> pl.DataFrame:
     """Layers 1-2 inputs: the panel, its pre-game state, and report features."""
-    panel = build_panel(data_dir, season_types)
-    return add_report_features(prepare(add_pre_game_state(panel), data_dir))
+    panel = build_panel(season_types)
+    return add_report_features(prepare(add_pre_game_state(panel)))
 
 
 def add_positions(data: pl.DataFrame, fit_before: str) -> pl.DataFrame:
@@ -91,7 +88,6 @@ def add_out_of_fold_play_probability(data: pl.DataFrame) -> pl.DataFrame:
 
 
 def layer4_frame(
-    data_dir: Path = DATA_DIR,
     fit_positions_before: str = "2024-25",
     season_types: tuple[str, ...] = SEASON_TYPES,
 ) -> pl.DataFrame:
@@ -102,13 +98,12 @@ def layer4_frame(
     state-only availability model, which is the obvious lever if sample size
     turns out to bind.
     """
-    data = add_positions(base_frame(data_dir, season_types), fit_positions_before)
+    data = add_positions(base_frame(season_types), fit_positions_before)
     return add_absorption_features(add_out_of_fold_play_probability(injury_era(data)))
 
 
 def fit_bundle(
     through_season: str,
-    data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
     git_commit: str | None = None,
 ) -> HierarchyBundle:
@@ -117,8 +112,8 @@ def fit_bundle(
     The current season is deliberately excluded when this is called with the
     previous season; the daily job loads the frozen models and never refits.
     """
-    panel = build_panel(data_dir, season_types)
-    data = add_report_features(prepare(add_pre_game_state(panel), data_dir))
+    panel = build_panel(season_types)
+    data = add_report_features(prepare(add_pre_game_state(panel)))
     data = data.filter(pl.col("season") <= through_season)
 
     position_features = list(PROFILE_FEATURES + HISTORY_FEATURES)
@@ -167,7 +162,7 @@ def fit_bundle(
 
 
 def _attach_report_for_date(
-    combined: pl.DataFrame, as_of_date: date, data_dir: Path, include_report: bool = True
+    combined: pl.DataFrame, as_of_date: date, include_report: bool = True
 ) -> tuple[pl.DataFrame, bool]:
     """Fill the target date's rows with that date's injury report.
 
@@ -187,7 +182,7 @@ def _attach_report_for_date(
     """
     if not include_report:
         return combined, False
-    report = load_injury_reports(data_dir).filter(pl.col("game_date") == as_of_date)
+    report = load_injury_reports().filter(pl.col("game_date") == as_of_date)
     if report.is_empty():
         return combined, False
     return (
@@ -227,13 +222,10 @@ def _apply_availability(
         keyed = availability.filter(pl.col("p_available").is_not_null())
         if "prediction_date" in keyed.columns:
             keyed = keyed.sort("prediction_date")
-        keyed = (
-            keyed.unique(subset=["player_id", "game_date"], keep="last")
-            .select(
-                pl.col("player_id").cast(pl.Int64),
-                pl.col("game_date"),
-                pl.col("p_available").cast(pl.Float64),
-            )
+        keyed = keyed.unique(subset=["player_id", "game_date"], keep="last").select(
+            pl.col("player_id").cast(pl.Int64),
+            pl.col("game_date"),
+            pl.col("p_available").cast(pl.Float64),
         )
         out = data.join(keyed, on=["player_id", "game_date"], how="left")
         p_available = pl.col("p_available")
@@ -241,10 +233,7 @@ def _apply_availability(
     serving = pl.col("game_id") == SERVING_GAME_ID
     injury_allowed = pl.lit(allow_injury)
     use_injury = (
-        serving
-        & injury_allowed
-        & pl.col("report_status").is_null()
-        & p_available.is_not_null()
+        serving & injury_allowed & pl.col("report_status").is_null() & p_available.is_not_null()
     )
     report_covered = serving & (~injury_allowed | pl.col("report_status").is_not_null())
     out = out.with_columns(
@@ -262,7 +251,6 @@ def _apply_availability(
 
 def daily_hierarchy(
     as_of_date: date,
-    data_dir: Path = DATA_DIR,
     season_types: tuple[str, ...] = SEASON_TYPES,
     lookback_games: int = 10,
     require_fixture: bool = True,
@@ -289,21 +277,20 @@ def daily_hierarchy(
     False only to inspect a team's standing on a date it is idle, and read the
     result as hypothetical.
     """
-    panel = build_panel(data_dir, season_types)
+    panel = build_panel(season_types)
     if panel_through is not None:
         # The backtest hook: simulate a run on `panel_through` predicting a later
         # date. Without it the serving state sees games played between the two.
         panel = panel.filter(pl.col("game_date") < panel_through)
-    fixtures = load_fixtures(data_dir, season_types).filter(pl.col("game_date") == as_of_date)
+    fixtures = load_fixtures(season_types).filter(pl.col("game_date") == as_of_date)
     season = fixtures["season"].max() if not fixtures.is_empty() else None
-    roster = load_team_roster(data_dir, season) if season is not None else None
+    roster = load_team_roster(season) if season is not None else None
     combined, report_published = _attach_report_for_date(
         append_serving_rows(panel, as_of_date, lookback_games, roster),
         as_of_date,
-        data_dir,
         include_report=include_report,
     )
-    data = add_report_features(prepare(add_pre_game_state(combined), data_dir))
+    data = add_report_features(prepare(add_pre_game_state(combined)))
 
     if bundle is None:
         before = pl.col("game_date") < as_of_date

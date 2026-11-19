@@ -128,7 +128,7 @@ bundle is refitted: the head is stored in `HierarchyBundle.usage_head`, and a
 bundle pickled before it existed simply omits the columns.
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py --through-season 2025-26
+uv run --group data python scripts/fit_model.py --through-season 2025-26
 ```
 
 ## What is weak
@@ -178,7 +178,7 @@ INJURY_DURATION_DATA=data/full uv run python scripts/21_backfill_availability.py
   --season 2026-27
 
 # hierarchy repo
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/eval_horizon.py \
+uv run --group data python scripts/eval_horizon.py \
   --availability ../injury_duration/artifacts/availability_2026_27.parquet \
   --runs 2026-11-05,2026-11-11
 ```
@@ -207,28 +207,29 @@ Three cautions for anyone extending this:
 ## Install
 
 ```bash
-uv sync --group dev
+uv sync --group dev --group data
 ```
 
 ## Data
 
-The Parquet snapshot is not committed. Point `TEAM_HIERARCHY_DATA` at a
-directory containing `nba/` and `util/`:
+The database is the only source. The loaders read the public views through
+`scs-hub`; there is no Parquet snapshot and no `gen.py`:
 
 ```bash
-export TEAM_HIERARCHY_DATA=/path/to/nba_adhoc/data
+uv sync --group data
+export TEAM_HIERARCHY_DB_CON=jetson-read   # default
 ```
 
-The default is `data/` in the repository root. The model needs:
+The model needs these views:
 
 ```
-nba/injuries.parquet
-nba/league_game_schedule.parquet
-nba/player_box_score.parquet
-nba/player_info.parquet
-nba/team_roster_vw.parquet
-nba/teams.parquet
-util/player_id_map_vw.parquet
+nba/injuries_vw
+nba/league_game_schedule_vw
+nba/player_box_score_vw       # in_box_score distinguishes the box spine
+nba/player_info_vw
+nba/team_roster_vw
+nba/teams_vw
+util/player_id_map_vw
 ```
 
 The daily run uses the dated `team_roster_vw` to correct offseason membership: a player traded in July has no game for his new team yet, so the panel alone would still put him on last season's team.
@@ -241,7 +242,7 @@ uv run python scripts/eval_position.py                # position tables
 uv run python scripts/eval_availability.py            # availability tables
 uv run python scripts/eval_absorption.py              # minutes/usage tables
 uv run python scripts/export_charts.py 2026-04-12     # reports/ CSV, TXT, HTML
-uv run pytest                                          # 60 tests
+uv run --group data pytest                            # 71 tests; reads the live views
 ```
 
 ## Persisted model
@@ -250,8 +251,7 @@ The production bundle is frozen through 2025-26, so the whole 2026-27 season is
 out-of-sample:
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/fit_model.py \
-  --through-season 2025-26
+uv run --group data python scripts/fit_model.py --through-season 2025-26
 ```
 
 This writes `artifacts/team_hierarchy/model.pkl` and `model.json`. The daily
@@ -267,7 +267,7 @@ version mismatch.
 
 ## Scheduled pipeline and backfill
 
-`__main__.py` refreshes the snapshot, loads the 2025-26 bundle and scores every
+`__main__.py` reads the public views, loads the 2025-26 bundle and scores every
 unplayed slate in the next seven days, replacing those `game_date` rows in
 `mod.team_hierarchy_base` in one publish. The public `mod.team_hierarchy_vw` and
 the day-of contract `mod.game_day_vw` are applied from
@@ -294,7 +294,7 @@ than silently falling back to the overconfident state-only probability.
 Completed 2026-27 slates plus today:
 
 ```bash
-TEAM_HIERARCHY_DATA=data/daily uv run python scripts/backfill.py \
+uv run --group data python scripts/backfill.py \
   --season 2026-27 --end 2026-11-07
 ```
 
