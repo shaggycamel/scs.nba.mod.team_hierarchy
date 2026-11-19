@@ -133,11 +133,11 @@ uv run --group data python scripts/fit_model.py --through-season 2025-26
 
 ## What is weak
 
-- **Style similarity in absorption does not earn its place.** Walk-forward
-  archetypes for 2021-26, Bhattacharyya similarity: minutes MAE 4.649 against
-  4.652, top-quartile vacated minutes 5.127 against 5.131, starter recall
-  slightly worse. The optional path remains in `similarity.py` and
-  `eval_absorption.py`, but the production feature list does not use it.
+- **Style similarity in absorption does not earn its place.** Season-aware
+  walk-forward archetypes for 2021-26, Bhattacharyya similarity: minutes MAE
+  4.650 against 4.652, top-quartile 5.117 against 5.131, starter recall slightly
+  better; the starter-weighted variant was 4.652. The gain is too small to ship.
+  The optional path remains in `similarity.py` and `eval_absorption.py`.
 - **Usage barely beats a trailing mean** (R² 0.3421 against 0.3310, identical
   MAE to three decimals). Build on minutes and availability, not usage rate.
 - **The five-position split is soft.** G/F/C holds 97.1% game to game; PG/SG and
@@ -247,8 +247,10 @@ uv run python scripts/eval_position.py                # position tables
 uv run python scripts/eval_availability.py            # availability tables
 uv run --group data python scripts/eval_absorption.py \
   --assignments ../player_archetypes/artifacts/backfill/assignments.parquet  # minutes/usage
+uv run --group data python scripts/build_team_archetype_summary.py \
+  --season 2026-27 --publish                            # team composition
 uv run python scripts/export_charts.py 2026-04-12     # reports/ CSV, TXT, HTML
-uv run --group data pytest                            # 76 tests; reads the live views
+uv run --group data pytest                            # 82 tests; reads the live views
 ```
 
 The absorption ablation needs walk-forward archetype vectors; generate them
@@ -309,6 +311,35 @@ uv run --group data python scripts/backfill.py \
 
 The same frozen bundle is used for every date, and every row records
 `model_cutoff` and `model_version`.
+
+## Team archetype summary
+
+`mod.team_archetype_summary_vw` is the descriptive team-composition surface. It
+has one row per `(game_date, game_id, team_id, archetype)` and answers both
+questions directly:
+
+- `expected_share` — the distribution weighted by `start_rate_5`, the rolling
+  starting-five weight. A promoted backup rises, an injured starter fades.
+- `actual_starter_share` — the distribution of the five players who actually
+  started that game.
+- `available_share` — the expected mix restricted to players likely to play
+  (`start_rate_5 * play_rate_5`).
+- `expected_dominant` / `actual_dominant` — the dominant style in each mix.
+- `top_1_*` … `top_3_*` — the player hierarchy inside that archetype, scored by
+  `start_rate_5 * responsibility`.
+
+The history is built from the walk-forward artifact; the current season reads
+`mod.player_archetype_vw`. Build one season at a time:
+
+```bash
+uv run --group data python scripts/build_team_archetype_summary.py \
+  --season 2025-26 \
+  --assignments ../player_archetypes/artifacts/backfill/assignments.parquet \
+  --publish
+```
+
+`kobe_public` has `SELECT` on the view only; the base table is private and the
+builder revokes and asserts that on every publish.
 
 ## Layout
 

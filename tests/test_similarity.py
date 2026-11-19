@@ -5,7 +5,14 @@ from datetime import date
 import polars as pl
 import pytest
 
-from team_hierarchy.similarity import STYLE_FEATURE, attach_style_similarity
+from team_hierarchy.similarity import (
+    STARTER_STYLE_FEATURE,
+    STYLE_FEATURE,
+    archetype_depth,
+    attach_responsibilities,
+    attach_style_similarity,
+    team_mix,
+)
 
 
 def assignments() -> pl.DataFrame:
@@ -36,6 +43,7 @@ def scored(games: list[tuple[int, date]]) -> pl.DataFrame:
                     "game_date": game_date,
                     "p_play": 0.5,
                     "ewm_min_played_8": 30.0,
+                    "start_rate_5": 1.0,
                 },
                 {
                     "game_id": game_id,
@@ -44,6 +52,7 @@ def scored(games: list[tuple[int, date]]) -> pl.DataFrame:
                     "game_date": game_date,
                     "p_play": 0.5,
                     "ewm_min_played_8": 20.0,
+                    "start_rate_5": 1.0,
                 },
             ]
         )
@@ -88,6 +97,78 @@ def test_a_player_with_no_teammates_gets_zero():
     one_player = scored([(1, date(2024, 1, 5))]).filter(pl.col("player_id") == 1)
     out = attach_style_similarity(one_player, assignments())
     assert feature(out, 1, 1) == 0.0
+
+
+def test_starter_weight_removes_a_bench_teammates_contribution():
+    frame = scored([(1, date(2024, 1, 5))]).with_columns(
+        pl.when(pl.col("player_id") == 2).then(0.0).otherwise(1.0).alias("start_rate_5")
+    )
+    out = attach_style_similarity(frame, assignments())
+    row = out.filter((pl.col("game_id") == 1) & (pl.col("player_id") == 1))
+    assert row[STYLE_FEATURE].item() == pytest.approx(10.0)
+    assert row[STARTER_STYLE_FEATURE].item() == pytest.approx(0.0)
+
+
+def test_team_mix_weights_styles_by_starter_status():
+    asg = pl.DataFrame(
+        {
+            "player_id": [1, 2],
+            "game_date": [date(2024, 1, 1), date(2024, 1, 1)],
+            "archetype_0": [1.0, 0.0],
+            "archetype_1": [0.0, 1.0],
+        }
+    )
+    frame = scored([(1, date(2024, 1, 5))]).with_columns(
+        pl.when(pl.col("player_id") == 2).then(0.0).otherwise(1.0).alias("start_rate_5")
+    )
+    mix = team_mix(attach_responsibilities(frame, asg))
+    assert mix["roster_mix_0"].item() == pytest.approx(1.0)
+    assert mix["roster_mix_1"].item() == pytest.approx(0.0)
+    assert mix["roster_dominant"].item() == 0
+
+
+def test_archetype_depth_ranks_players_within_style():
+    asg = pl.DataFrame(
+        {
+            "player_id": [1, 2],
+            "game_date": [date(2024, 1, 1), date(2024, 1, 1)],
+            "archetype_0": [1.0, 0.0],
+            "archetype_1": [0.0, 1.0],
+        }
+    )
+    frame = attach_responsibilities(scored([(1, date(2024, 1, 5))]), asg)
+    depth = archetype_depth(frame)
+    top_creator = depth.filter(pl.col("archetype") == 0).sort("rank_in_archetype").head(1)
+    top_connector = depth.filter(pl.col("archetype") == 1).sort("rank_in_archetype").head(1)
+    assert top_creator["player_id"].item() == 1
+    assert top_connector["player_id"].item() == 2
+
+
+def test_vectors_do_not_cross_seasons():
+    asg = pl.DataFrame(
+        {
+            "player_id": [1, 1],
+            "season": ["2024-25", "2025-26"],
+            "game_date": [date(2024, 1, 1), date(2025, 1, 1)],
+            "archetype_0": [1.0, 0.0],
+            "archetype_1": [0.0, 1.0],
+        }
+    )
+    frame = pl.DataFrame(
+        {
+            "game_id": [1],
+            "team_id": [10],
+            "player_id": [1],
+            "season": ["2025-26"],
+            "game_date": [date(2025, 2, 1)],
+            "p_play": [0.5],
+            "ewm_min_played_8": [30.0],
+            "start_rate_5": [1.0],
+        }
+    )
+    out = attach_responsibilities(frame, asg)
+    assert out["archetype_0"].item() == 0.0
+    assert out["archetype_1"].item() == 1.0
 
 
 def test_opponents_do_not_contribute():

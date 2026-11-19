@@ -21,6 +21,7 @@ import polars as pl
 
 from team_hierarchy.absorption import (
     ABSORPTION_FEATURES,
+    ABSORPTION_FEATURES_WITH_STARTER_STYLE,
     ABSORPTION_FEATURES_WITH_STYLE,
     MINUTES_TARGET,
     OWN_FEATURES,
@@ -117,6 +118,7 @@ def main() -> None:
     )
     base_features = OWN_FEATURES + ABSORPTION_FEATURES
     style_features = OWN_FEATURES + ABSORPTION_FEATURES_WITH_STYLE
+    starter_features = OWN_FEATURES + ABSORPTION_FEATURES_WITH_STARTER_STYLE
     print(
         f"layer 4 frame: {data.height:,} rows, seasons "
         f"{sorted(data['season'].unique().to_list())}, metric {args.metric}"
@@ -140,9 +142,11 @@ def main() -> None:
         m_own = fit_regressor(train, OWN_FEATURES, MINUTES_TARGET)
         m_base = fit_regressor(train, base_features, MINUTES_TARGET)
         m_style = fit_regressor(train, style_features, MINUTES_TARGET)
+        m_starter = fit_regressor(train, starter_features, MINUTES_TARGET)
         scored = predict(m_own, test, OWN_FEATURES, "p_min_own")
         scored = predict(m_base, scored, base_features, "p_min_base")
         scored = predict(m_style, scored, style_features, "p_min_style")
+        scored = predict(m_starter, scored, starter_features, "p_min_starter")
         preds = {
             "season_mean": scored["season_mean_min"]
             .fill_null(train[MINUTES_TARGET].mean())
@@ -154,6 +158,7 @@ def main() -> None:
             "model_own_only": scored["p_min_own"].to_numpy(),
             "model_absorption": scored["p_min_base"].to_numpy(),
             "model_absorption+style": scored["p_min_style"].to_numpy(),
+            "model_absorption+starter_style": scored["p_min_starter"].to_numpy(),
         }
         for name, p in preds.items():
             min_rows.append({"season": season, "model": name, **regression_score(p, y)})
@@ -166,6 +171,7 @@ def main() -> None:
             ("allocation_baseline", "alloc_minutes"),
             ("model_absorption", "p_min_base"),
             ("model_absorption+style", "p_min_style"),
+            ("model_absorption+starter_style", "p_min_starter"),
         ]:
             slices.append(
                 {"season": season, "model": name, **regression_score(hi[col].to_numpy(), yh)}
@@ -177,6 +183,7 @@ def main() -> None:
         for name, col in [
             ("model_absorption", "p_min_base"),
             ("model_absorption+style", "p_min_style"),
+            ("model_absorption+starter_style", "p_min_starter"),
         ]:
             if role.height:
                 role_rows.append(
@@ -192,6 +199,7 @@ def main() -> None:
                 "season": season,
                 "model_absorption": starter_recall(scored, "p_min_base"),
                 "model_absorption+style": starter_recall(scored, "p_min_style"),
+                "model_absorption+starter_style": starter_recall(scored, "p_min_starter"),
             }
         )
 
@@ -200,9 +208,11 @@ def main() -> None:
         u_own = fit_regressor(train, OWN_FEATURES, USAGE_TARGET)
         u_base = fit_regressor(train, base_features, USAGE_TARGET)
         u_style = fit_regressor(train, style_features, USAGE_TARGET)
+        u_starter = fit_regressor(train, starter_features, USAGE_TARGET)
         su = predict(u_own, test, OWN_FEATURES, "p_usg_own")
         su = predict(u_base, su, base_features, "p_usg_base")
         su = predict(u_style, su, style_features, "p_usg_style")
+        su = predict(u_starter, su, starter_features, "p_usg_starter")
         upreds = {
             "season_mean": su["season_mean_usg"].fill_null(train[USAGE_TARGET].mean()).to_numpy(),
             "trailing_mean (ewm_usg_pct_8)": su["ewm_usg_pct_8"]
@@ -211,6 +221,7 @@ def main() -> None:
             "model_own_only": su["p_usg_own"].to_numpy(),
             "model_absorption": su["p_usg_base"].to_numpy(),
             "model_absorption+style": su["p_usg_style"].to_numpy(),
+            "model_absorption+starter_style": su["p_usg_starter"].to_numpy(),
         }
         for name, p in upreds.items():
             usg_rows.append({"season": season, "model": name, **regression_score(p, yu)})

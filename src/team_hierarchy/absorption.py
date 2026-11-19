@@ -87,7 +87,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from .similarity import STYLE_FEATURE, attach_style_similarity
+from .similarity import STARTER_STYLE_FEATURE, STYLE_FEATURE, attach_style_similarity
 from .state import canonical_sort
 
 TEAM_KEYS = ("game_id", "team_id")
@@ -129,9 +129,10 @@ ABSORPTION_FEATURES = (
     "team_size",
 )
 
-# The style-aware variant, used by the ablation and promoted to
-# ABSORPTION_FEATURES only if it beats this baseline on minutes.
+# The style-aware variants, used by the ablation and promoted to
+# ABSORPTION_FEATURES only if one beats this baseline on minutes.
 ABSORPTION_FEATURES_WITH_STYLE = (*ABSORPTION_FEATURES, STYLE_FEATURE)
+ABSORPTION_FEATURES_WITH_STARTER_STYLE = (*ABSORPTION_FEATURES, STARTER_STYLE_FEATURE)
 
 POSITION_CODES = {"PG": 0, "SG": 1, "SF": 2, "PF": 3, "C": 4}
 
